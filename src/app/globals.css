@@ -1,0 +1,311 @@
+@import "tailwindcss";
+
+@theme {
+  --color-q-bg: var(--q-bg);
+  --color-q-panel: var(--q-panel);
+  --color-q-elevated: var(--q-elevated);
+  --color-q-secondary-elevated: var(--q-secondary-elevated);
+  --color-q-separator: var(--q-separator);
+  --color-q-chrome: var(--q-chrome);
+  --color-q-text: var(--q-text);
+  --color-q-text-2: var(--q-text-2);
+  --color-q-text-3: var(--q-text-3);
+  --color-q-accent: var(--q-accent);
+  --color-q-accent-hover: var(--q-accent-hover);
+  --color-q-their-bubble: var(--q-their-bubble);
+  --color-q-search-fill: var(--q-search-fill);
+  --color-q-chip-active: var(--q-chip-active);
+  --color-q-selected-row: var(--q-selected-row);
+  --color-q-skeleton: var(--q-skeleton);
+  --color-q-scrim: var(--q-scrim);
+  --color-q-online: var(--q-online);
+  --color-q-waiting: var(--q-waiting);
+  --color-q-offline: var(--q-offline);
+  --color-q-danger: var(--q-danger);
+  --color-q-switch-on: var(--q-switch-on);
+
+  --color-q-avatar-0: #7C6AAE;
+  --color-q-avatar-1: #4E7FA0;
+  --color-q-avatar-2: #A05B4E;
+  --color-q-avatar-3: #5B8C5A;
+  --color-q-avatar-4: #B0894F;
+  --color-q-avatar-5: #5E7A9C;
+  --color-q-avatar-6: #8A6FA8;
+  --color-q-avatar-7: #4F8A7A;
+
+  /* Aliases for backwards compatibility */
+  --color-q-hairline: var(--q-separator);
+  --color-q-muted: var(--q-text-2);
+  --color-q-bubble-own: var(--q-accent);
+  --color-q-bubble-their: var(--q-their-bubble);
+}
+
+/* ── Design system tokens — Prompt 6 / iOS Messages palette ──────────────── */
+/* Both modes ship together; LIGHT mode is product default (founder decision 2026-10-18) */
+:root {
+  color-scheme: light;
+
+  /* Backgrounds & Panels */
+  --q-bg: #FFFFFF;
+  --q-panel: #F2F2F7;
+  --q-elevated: #FFFFFF;
+  --q-secondary-elevated: #E9E9EB;
+
+  /* Separators & Chrome */
+  --q-separator: #C6C6C8;
+  --q-chrome: rgba(249, 249, 249, 0.85);
+
+  /* Typography */
+  --q-text: #000000;
+  --q-text-2: rgba(60, 60, 67, 0.60);
+  --q-text-3: rgba(60, 60, 67, 0.30);
+
+  /* Accent — Apple blue light */
+  --q-accent: #007AFF;
+  --q-accent-hover: #0071E3;
+
+  /* Message bubbles (own bubble gradient is the ONLY gradient in the app) */
+  --q-own-bubble-bg: linear-gradient(180deg, #3395FF, #0071E3);
+  --q-their-bubble: #E9E9EB;
+
+  /* Interactive, chips & lists */
+  --q-search-fill: rgba(118, 118, 128, 0.12);
+  --q-chip-active: rgba(0, 122, 255, 0.12);
+  --q-selected-row: rgba(0, 122, 255, 0.10);
+  --q-skeleton: #E5E5EA;
+  --q-scrim: rgba(0, 0, 0, 0.30);
+
+  /* Status dots & switches */
+  --q-online: #34C759;
+  --q-waiting: #FF9F0A;
+  --q-offline: #8E8E93;
+  --q-danger: #FF3B30;
+  --q-switch-on: #34C759;
+
+  /* Aliases for backwards compatibility */
+  --q-hairline: var(--q-separator);
+  --q-muted: var(--q-text-2);
+  --q-translucent: var(--q-chrome);
+  --q-bubble-own: var(--q-accent);
+  --q-bubble-their: var(--q-their-bubble);
+}
+
+.dark {
+  color-scheme: dark;
+
+  /* Backgrounds & Panels */
+  --q-bg: #000000;
+  --q-panel: #1C1C1E;
+  --q-elevated: #2C2C2E;
+  --q-secondary-elevated: #3A3A3C;
+
+  /* Separators & Chrome */
+  --q-separator: rgba(84, 84, 88, 0.60);
+  --q-chrome: rgba(28, 28, 30, 0.85);
+
+  /* Typography */
+  --q-text: #FFFFFF;
+  --q-text-2: rgba(235, 235, 245, 0.60);
+  --q-text-3: rgba(235, 235, 245, 0.30);
+
+  /* Accent — Apple blue dark */
+  --q-accent: #0A84FF;
+  --q-accent-hover: #0077ED;
+
+  /* Message bubbles */
+  --q-own-bubble-bg: linear-gradient(180deg, #2E90FF, #0060DF);
+  --q-their-bubble: #262628;
+
+  /* Interactive, chips & lists */
+  --q-search-fill: rgba(118, 118, 128, 0.24);
+  --q-chip-active: rgba(10, 132, 255, 0.22);
+  --q-selected-row: #2C2C2E;
+  --q-skeleton: #1C1C1E;
+  --q-scrim: rgba(0, 0, 0, 0.50);
+
+  /* Status dots & switches */
+  --q-online: #30D158;
+  --q-waiting: #FF9F0A;
+  --q-offline: #636366;
+  --q-danger: #FF453A;
+  --q-switch-on: #34C759;
+
+  /* Aliases for backwards compatibility */
+  --q-hairline: var(--q-separator);
+  --q-muted: var(--q-text-2);
+  --q-translucent: var(--q-chrome);
+  --q-bubble-own: var(--q-accent);
+  --q-bubble-their: var(--q-their-bubble);
+}
+
+/* ── Base ────────────────────────────────────────────────────────────────── */
+html,
+body {
+  height: 100%;
+}
+
+body {
+  background-color: var(--q-bg);
+  color: var(--q-text);
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Prevent layout shift from scrollbar appearing */
+html {
+  scrollbar-gutter: stable;
+}
+
+/* ── Translucent chrome material ─────────────────────────────────────────── */
+.translucent-chrome {
+  background-color: var(--q-translucent);
+  backdrop-filter: blur(20px) saturate(180%);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+}
+
+/* ── Message bubbles (Prompt 6: own-bubble gradient is the ONLY gradient in the app) ── */
+.own-bubble {
+  background-image: var(--q-own-bubble-bg);
+  color: #FFFFFF;
+}
+
+/* ── Apple-style button feedback (pressed state scale(0.97), 100ms) ───────── */
+.apple-btn {
+  transition: transform 100ms ease-out, background-color 150ms ease, opacity 150ms ease, border-color 150ms ease;
+}
+.apple-btn:active {
+  transform: scale(0.97);
+}
+
+/* ── Apple-style input focus ring (opacity + border color, 150ms) ─────────── */
+.apple-input {
+  transition: border-color 150ms ease, box-shadow 150ms ease, background-color 150ms ease;
+}
+.apple-input:focus {
+  border-color: var(--q-accent);
+  box-shadow: 0 0 0 2px rgba(0, 122, 255, 0.25);
+}
+.dark .apple-input:focus {
+  box-shadow: 0 0 0 2px rgba(10, 132, 255, 0.25);
+}
+
+/* ── Entrance spring animation (critically damped, ~0.35s) ────────────────── */
+@keyframes apple-spring-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-spring-in {
+  animation: apple-spring-in 0.35s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+/* ── Chat bubbles sequence (fade + 4px rise, spring, then hold, gentle loop) ─ */
+@keyframes chat-bubble-1 {
+  0% {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  3.5%, 88% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  92%, 100% {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+}
+
+@keyframes chat-bubble-2 {
+  0%, 14% {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  17.5%, 88% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  92%, 100% {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+}
+
+@keyframes chat-bubble-3 {
+  0%, 28% {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  31.5%, 88% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  92%, 100% {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+}
+
+.animate-chat-bubble-1 {
+  animation: chat-bubble-1 10s cubic-bezier(0.16, 1, 0.3, 1) infinite;
+}
+
+.animate-chat-bubble-2 {
+  animation: chat-bubble-2 10s cubic-bezier(0.16, 1, 0.3, 1) infinite;
+}
+
+.animate-chat-bubble-3 {
+  animation: chat-bubble-3 10s cubic-bezier(0.16, 1, 0.3, 1) infinite;
+}
+
+/* ── Reduced-motion — everything off, elements appear statically ─────────── */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+  .animate-spring-in,
+  .animate-chat-bubble-1,
+  .animate-chat-bubble-2,
+  .animate-chat-bubble-3 {
+    animation: none !important;
+    opacity: 1 !important;
+    transform: none !important;
+  }
+  .apple-btn:active {
+    transform: none !important;
+  }
+  .apple-input {
+    transition: none !important;
+  }
+}
+
+/* ── Reduced-transparency — solid surfaces, blur off ─────────────────────── */
+@media (prefers-reduced-transparency: reduce) {
+  * {
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+  }
+  .translucent-chrome {
+    background-color: var(--q-panel) !important;
+  }
+}
+
+/* ── High-contrast mode ──────────────────────────────────────────────────── */
+@media (prefers-contrast: more) {
+  :root {
+    --q-hairline: rgba(0, 0, 0, 0.25);
+  }
+  .dark {
+    --q-hairline: rgba(255, 255, 255, 0.25);
+  }
+}
