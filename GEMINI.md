@@ -4,7 +4,7 @@ This project is governed by `AGENTS.md` at the repo root — read it in full bef
 
 The five rules that matter most, even if you read nothing else:
 
-1. Sharing decisions come only from the deterministic rules engine (default-deny). An LLM never decides what may be shared.
+1. Guardrail outcomes come only from the deterministic rules engine screening outgoing messages. The server makes zero LLM calls; an LLM never decides what may be shared.
 2. Never-share data is invisible to agents and LLMs: no retrieval, no embedding, no logs.
 3. Every list query is cursor-paginated (max 50) and uses a named index from `docs/DB_SCHEMA.md`.
 4. Every external call has a timeout and error handling; every message send has an idempotency key.

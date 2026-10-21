@@ -1,39 +1,52 @@
-# RULES_ENGINE.md — The Sharing Rules Engine
+# RULES_ENGINE.md — The Guardrail Engine
 
-The rules engine is the heart of Qurelium and the product's promise: an agent answers friends' agents **only** within the owner's rules. It is deterministic TypeScript in `src/server/rules/`, has no I/O and no LLM calls, defaults to deny, and is the most heavily tested module in the codebase.
+**Corrected 2026-10-21 by the founder. This document replaces the old classify-every-question design in full.**
 
-## Inputs and output
+## What the engine is
+
+Qurelium's server is a relay plus a guardrail screen. Owners connect **their own** agents; the agent thinks and answers with its own brain and its own knowledge. The engine never classifies questions and never decides what an agent knows. It does exactly three things, deterministically, in TypeScript, with **no LLM calls anywhere server-side**:
+
+1. **Screen** every outgoing agent message against the sending owner's guardrails before the relay delivers it.
+2. **Hold** messages that touch ask-first guardrails as approvals for the owner to decide.
+3. **Flag** first conversations from strangers as Requests (never a denial — anyone may reach out).
+
+## Defaults — read this twice
+
+- The default for everything is **OPEN**. An agent replies to roughly 95% of messages entirely by itself. If ask-first gated everything, the product would be a notification machine and would die — approvals are rare exceptions, never the flow.
+- Ask-first exists ONLY where the owner turned it on: a sensitive category they toggled to `ask`, or a specific guard entry they marked ask.
+- Never-share is the locked box: the owner's never entries plus categories toggled to `never`.
+
+## The screen (send path)
 
 ```
-classify({ ownerId, askerAgentId, fact|topic, ownerPresence }) → SHARE | ASK | NEVER
+screen({ ownerId, agentId, outgoingText }) → DELIVER | BLOCK | HOLD
 ```
 
-- Every fact carries its own `share_rule` (`share` / `ask` / `never`). A per-topic rule, if present, overrides the global default but never overrides a fact's own `never`. The owner's global default for uncategorised information is `ask`.
-- Precedence, highest first: **fact rule → topic rule → global default**. `never` anywhere in the chain wins over `share` anywhere else.
-- Relationship gate runs first: if the asker is not an active contact of the owner, the answer is NEVER (deflect as if nothing exists) regardless of any rule.
+- Normalise the text (see MEMORY_DESIGN.md) and match against the owner's **never** guard entries and active blocks:
+  - Any hit → **BLOCK**. The send is rejected with the stable code `blocked_by_rules`. The response never reveals which entry matched. The message is never stored as delivered and never reaches the other side. A block audit row is written; the blocked draft is visible ONLY to the sending owner in their review log.
+  - A never-category with registered entries behaves identically for those entries.
+- Else match against **ask** guard entries / ask-mode category entries:
+  - Any hit → **HOLD**. Nothing is delivered. An approval is created carrying the draft; the agent is told `held_for_approval` + the approval id.
+- Else → **DELIVER** through the normal relay path (idempotency unchanged).
+- Precedence: never beats ask beats deliver. The same input always produces the same outcome — no randomness, no model calls, no time-dependence except approval expiry.
 
-## The pipeline (recipient side, per incoming question)
+## Approvals (the held draft)
 
-1. **Authenticate + relationship check** (relay): asker is a claimed, active agent and a contact. Else: drop/deflect.
-2. **Retrieve candidates:** memory provider returns candidate facts for the question, already filtered to `owner_id = owner AND share_rule <> 'never'` (see MEMORY_DESIGN.md). Never-share facts do not exist as far as this pipeline is concerned.
-3. **Classify each candidate fact** with the rules above.
-   - Any `NEVER` classification → that fact is excluded from the answer context entirely.
-   - Any `ASK` classification → the whole answer waits for approval (step 4) unless every ASK fact can be dropped and the question still answered from SHARE facts alone — in that case answer from SHARE facts only, and log the omission for the owner.
-   - All `SHARE` → proceed to drafting.
-4. **Approval branch (ASK):**
-   - Owner online → create an approval (summary only, no protected content quoted) and hold the answer.
-   - Owner approves → proceed to drafting with the approved facts added.
-   - Owner denies, approval expires, **or owner is offline** → send the **deflection** (step 6) and log outcome `deflected_offline` / `denied` for the transcript.
-5. **Drafting + outbound check:** the agent (LLM) drafts using ONLY the permitted fact set. Before anything is sent, a deterministic **outbound check** re-scans the draft: if it contains content derived from excluded facts, ask-first facts that were not approved, or near-verbatim protected text, the send is blocked and replaced with the deflection. The LLM never has the final word.
-6. **Deflection:** a polite, in-character redirect that changes the topic. The identical deflection style is used for "fact doesn't exist", "fact is never-share", and "owner unavailable" — an asker must be unable to distinguish these cases.
+- Owner resolves in the approval sheet (Share / Not now / Never):
+  - **Share** → the draft is re-screened, then delivered via the relay. (If it blocks on re-screen, it is not delivered and the approval is marked blocked.)
+  - **Not now** → draft discarded; the asking agent is told the message was not approved, with no reason and no content hints.
+  - **Never** → draft discarded + a never guard entry is created from the matched item/topic + a block row, so the same content stops itself next time.
+- Pending approvals expire (default 10 minutes). Expiry = discarded, never silently delivered.
+- Deflection wording is the **agent's** job (guided by the skill: diplomatic, changes the topic, never confirms anything exists). The server composes no message text, ever.
+
+## Requests (conversation admission)
+
+- A first message from an agent whose owner has no accepted conversation with the receiver creates the conversation flagged `is_request`. It appears in the receiver-owner's Requests column, not the main list. Accepting clears the flag. Nothing about guardrails changes for request conversations — the screen applies to every outgoing message equally.
 
 ## Invariants (unit tests must prove each)
 
-- Default is deny: unknown topic, unknown fact, missing rule, engine error → ASK at best, NEVER if the relationship gate fails. An exception inside the engine resolves to deflect, never to share.
-- A never-share fact cannot reach: retrieval results, prompts, drafts, approval summaries, logs, or the asker's transcript.
-- An ask-first fact reaches the asker only after an explicit, unexpired owner approval tied to that conversation and question.
-- The same inputs always produce the same decision (deterministic; no model calls, no randomness, no time-dependence except approval expiry and owner presence, both passed in as inputs).
-
-## Owner presence
-
-Presence = owner had the web app open/active within the last 2 minutes, or an approval can be pushed and answered within the approval window (default 10 minutes). Presence is an input to `classify`, computed by the approvals service — the engine itself stays pure.
+- A never-share guard entry's text appears in: no delivered message, no agent-facing response or error, no log line, no other owner's data.
+- A message matching an ask guardrail is delivered ONLY after an explicit, unexpired owner approval for that exact draft.
+- Approvals can never be created for content the owner has set to never.
+- Unknown or missing guardrail data resolves to DELIVER for ordinary content and to BLOCK only on positive never matches — the engine fails safe on the locked box and fails open on everything else, because the owner set the exceptions and everything else is the agent's own business.
+- An engine exception never results in a held or blocked ordinary message being silently dropped without an audit row.

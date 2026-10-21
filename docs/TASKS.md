@@ -32,28 +32,27 @@ Work top-down. Never start a phase before the previous phase's boxes are checked
 - [ ] Rate limiter (Postgres-backed) on all agent routes (SECURITY.md numbers)
 - [ ] **Milestone test: founder's agent and a test agent hold a real conversation through the relay, with the founder's agent going offline mid-chat and receiving everything on reconnect**
 
-## Phase 4 — Rules engine & memory
+## Phase 4 — Guardrails (corrected 2026-10-21: no server brain — see DECISIONS.md #27–#34)
 
-- [ ] Migrations: rules, facts (with pgvector + HNSW), approvals, jobs
-- [ ] Rules engine module (pure, deterministic) + full decision-matrix unit tests (RULES_ENGINE.md invariants)
-- [ ] MemoryProvider interface + SupabaseMemoryProvider (facts CRUD with supersede semantics)
-- [ ] Normalize/dedup/hash utilities + embedding helpers (768-dim, task-steered, L2-normalized) per MEMORY_DESIGN.md
-- [ ] Extraction + ADD/UPDATE/DELETE/NONE update-decision flow with integer-index mapping; background jobs wired
-- [ ] Recipient pipeline: retrieve permitted → classify → draft → outbound check → send; never-share regression suite green
+- [x] Migration 005: facts, approvals, blocks (built under the old model; facts repurposed as guard entries by Prompt 8c)
+- [ ] Prompt 8c rework: remove the server-side think/LLM path entirely (server makes zero LLM calls)
+- [ ] Guard entries (never / ask) + category toggles (guard_categories, migration 006) with guided defaults
+- [ ] Send-path screen (pure, deterministic): DELIVER / BLOCK (`blocked_by_rules`) / HOLD → approval carrying the draft; RULES_ENGINE.md invariants green
+- [ ] Requests: stranger first-conversations flagged; Requests column in the shell; accept moves to main list
+- [ ] Guardrails UI (replaces the facts form): category toggles + never/ask entry lists + blocked/held review log
 
-## Phase 5 — Contacts, invites, guests, starter agents
+## Phase 5 — Contacts, invites, guests
 
 - [ ] Invites by email with unique links; Pending contacts; activation on friend sign-up + claim; revoke
-- [ ] Guest links + guest chat through the same rules pipeline
-- [ ] Starter-agent creation flow (owner's own model key) for friends without agents
+- [ ] Guest links (Prompt 8d): invite-only, max 3 active guests per agent (free cap in code), guest chat through the same guardrail screen, owner revoke
 - [ ] Contacts UI complete (active + pending states)
 
 ## Phase 6 — Approvals & owner experience
 
 - [ ] Approvals service + owner prompts (online) with expiry; offline → deflection path live
 - [ ] Full transcript views for owners (both sides), cursor-paginated
-- [ ] Owner ↔ own agent chat (assistant mode) using getContext memory
-- [ ] Facts & rules management UI (per-fact share/ask/never; topic + global defaults)
+- [ ] Owner ↔ own agent chat in the shell (their agent answers with its own brain, via the relay)
+- [ ] Guardrails management UI (category toggles open/ask/never + guard-entry lists) — lands with Prompt 8c
 
 ## Phase 7 — Production hardening
 
@@ -65,6 +64,6 @@ Work top-down. Never start a phase before the previous phase's boxes are checked
 
 ## Later phases (designed for, not scheduled)
 
-- [ ] Group chats (multi-agent conversations, group-specific memory boundaries)
+- [ ] Group chats (multi-agent conversations, group-specific guardrail boundaries)
 - [ ] Agent actions (agents doing things, with owner-set limits and approvals)
-- [ ] Alternate MemoryProvider implementations behind the interface
+- [ ] Paid tiers lifting the free caps (extra agents, extra guests)

@@ -110,15 +110,15 @@ Postgres (Supabase) is the only database. All schema changes are numbered migrat
 | decision                | text check in (`share`,`ask`,`never`)   |                                                               |
 | created_at / updated_at | timestamptz                             | unique(owner_id, scope, topic, fact_id)                       |
 
-### facts (memory — full design in `docs/MEMORY_DESIGN.md`)
+### facts (guard entries — full design in `docs/MEMORY_DESIGN.md`)
 
 | Column                  | Type                                                         | Notes                                                                                      |
 | ----------------------- | ------------------------------------------------------------ | ------------------------------------------------------------------------------------------ |
 | id                      | uuid PK                                                      |                                                                                            |
 | owner_id                | uuid FK → users                                              | the only namespace: every query filters by owner_id in code AND RLS                        |
 | text                    | text not null                                                | the fact, one statement                                                                    |
-| share_rule              | text check in (`share`,`ask`,`never`) not null default `ask` |                                                                                            |
-| embedding               | vector(768)                                                  | **NULL when share_rule = 'never'** — never-share facts are never embedded                  |
+| share_rule              | text check in (`share`,`ask`,`never`) not null — guard semantics 2026-10-21: `never` = locked box, `ask` = hold for approval, `share` = legacy/ignored by the screen |                                                                                            |
+| embedding               | vector(768)                                                  | **Unused by the product path since 2026-10-21** — guard entries are never embedded; column dormant                  |
 | content_hash            | text not null                                                | normalized-text hash for dedup; unique(owner_id, content_hash) among currently-valid facts |
 | metadata                | jsonb not null default '{}'                                  | source, topic tags; never contains identity keys                                           |
 | valid_at                | timestamptz not null default now()                           | when this fact became true                                                                 |
