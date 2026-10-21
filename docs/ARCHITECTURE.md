@@ -8,7 +8,7 @@
 | Database      | Supabase Postgres                                     | The only database. RLS on every table                    |
 | Auth          | Supabase Auth                                         | Email magic link + Google OAuth                          |
 | Realtime      | Supabase Realtime                                     | Owner UI live updates (transcripts, presence, approvals) |
-| Vector search | pgvector (in the same Postgres)                       | Facts embeddings, 768 dims (`docs/MEMORY_DESIGN.md`)     |
+| Vector search | pgvector (in the same Postgres)                       | Dormant — guard entries are not embedded (founder correction 2026-10-21) (`docs/MEMORY_DESIGN.md`)     |
 | Email         | Supabase/Resend free tier                             | Invites and magic links                                  |
 | Hosting       | Vercel                                                | Stateless route handlers only                            |
 | Validation    | Zod                                                   | Every boundary: API in/out, agent protocol, env          |
@@ -18,12 +18,12 @@ No other database, queue server, cache server, or framework may be introduced wi
 
 ## Components
 
-1. **Owner web app** (Next.js UI) — contacts, chats/transcripts, rules, facts, approvals, settings.
+1. **Owner web app** (Next.js UI) — contacts, chats/transcripts, guardrails, approvals, requests, settings.
 2. **Qurelium Core** (Next.js route handlers + `src/server/` services):
    - **Identity service** — owners, agents, handles, claim codes.
    - **Relay service** — authenticates agents, accepts/stores/routes messages, store-and-forward queues, presence.
-   - **Rules engine** — deterministic share/ask/never decisions (`docs/RULES_ENGINE.md`). Pure functions, no I/O, fully unit-tested.
-   - **Memory provider** — `MemoryProvider` interface; v1 implementation `SupabaseMemoryProvider` (`docs/MEMORY_DESIGN.md`).
+   - **Rules engine** — deterministic guardrail screen on outgoing messages: DELIVER / BLOCK / HOLD (`docs/RULES_ENGINE.md`). Pure functions, no I/O, fully unit-tested.
+   - **Guardrails service** — owners' guard entries + category toggles (`docs/MEMORY_DESIGN.md`). There is no memory provider: agents keep their own knowledge; the server stores no agent knowledge and makes zero LLM calls.
    - **Approvals service** — ask-first prompts to owners, approve/deny, expiry.
    - **Invites service** — invite links, pending contacts, activation.
 3. **Qurelium skill** (`skill/` folder in this repo) — `SKILL.md` + a small script the owner installs in their agent. It speaks the agent protocol (`docs/AGENT_PROTOCOL.md`) to the relay: register/claim, heartbeat, poll inbox, send messages. It is deliberately dumb: no rules logic, no memory logic — the server enforces everything.
@@ -32,13 +32,13 @@ No other database, queue server, cache server, or framework may be introduced wi
 
 ```
 Asker agent → (agent protocol, authenticated) → Relay accepts + stores message (status: queued)
-  → recipient agent polls / is notified → recipient-side pipeline:
-      rules engine classifies → memory provider retrieves ONLY permitted facts
-      → agent drafts answer → outbound check (rules engine) → relay stores + routes answer
+  → recipient agent polls inbox → recipient agent composes its reply with its OWN brain and knowledge
+  → agent submits the reply via the send path → guardrail screen (rules engine: owner's guard entries + category modes)
+      → DELIVER: relay stores + routes · BLOCK: send rejected `blocked_by_rules`, owner review-log entry · HOLD: approval created carrying the draft
   → asker agent polls inbox → answer delivered → both owners see transcript (Realtime)
 ```
 
-Ask-first branch: relay creates an approval → owner UI (Realtime) → approve: pipeline continues; deny/timeout/offline: deflection message is generated server-side and sent instead.
+Ask-first branch: screen returns HOLD → approval → owner UI (Realtime) → share: draft is re-screened, then delivered; not now / never / expiry: draft discarded (never → a guard entry is created). The server composes no message text at any point and makes zero LLM calls.
 
 ## Folder structure (strict — do not invent new top-level folders)
 

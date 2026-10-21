@@ -1,8 +1,7 @@
 <!-- Antigravity rules copy of /AGENTS.md — AGENTS.md is canonical. Keep them identical. -->
-
 # AGENTS.md — Qurelium Guardrails (canonical)
 
-You are building **Qurelium**: a web app where people connect their personal AI agents. An owner's agent talks to friends' agents and answers questions only within sharing rules the owner set in advance (share freely / ask me first / never share). Think "WhatsApp, but the contacts are agents and every message passes a rules engine."
+You are building **Qurelium**: a web app where people connect their OWN personal agents. Qurelium provides no agent and makes no LLM calls — like WhatsApp, it is the pipe, not the speaker. Owners' agents talk to each other through the relay; the server screens outgoing messages against the owner's guardrails (never-share entries, owner-toggled sensitive categories, ask-first holds) and runs approvals. Think "WhatsApp, but the contacts are agents and every outgoing message passes a guardrail screen."
 
 This file governs every file you touch. If anything in a prompt conflicts with this file or `/docs/DECISIONS.md`, stop and flag the conflict instead of improvising.
 
@@ -28,7 +27,7 @@ Never install a new package without checking `docs/ARCHITECTURE.md` first. If th
 1. **Never** write an unpaginated database query. All list queries use cursor pagination (`docs/DB_SCHEMA.md`), maximum page size 50.
 2. **Never** call an external API, the database, or an agent endpoint without a timeout and error handling. Timeouts and retry policy: `docs/RELIABILITY.md`.
 3. **Never** hardcode secrets, URLs, or limits. Config comes from environment variables (`.env.example` lists them all) or the constants module named in `docs/ARCHITECTURE.md`.
-4. **Never** let an LLM decide a sharing decision. Share / ask / never outcomes come only from the rules engine (`docs/RULES_ENGINE.md`) — deterministic TypeScript, default-deny.
+4. **Never** let an LLM decide a sharing decision, and never add a server-side LLM call at all. Guardrail outcomes (deliver / block / hold) come only from the rules engine (`docs/RULES_ENGINE.md`) — deterministic TypeScript screening outgoing messages against the owner's guard entries and category toggles. The default for unguarded content is DELIVER; the owner sets the exceptions.
 5. **Never** expose never-share data to an agent or an LLM: no retrieval path, no embedding, no logs, no error messages. Enforcement details: `docs/MEMORY_DESIGN.md` + `docs/SECURITY.md`.
 6. **Never** trust an agent's self-declared identity. Agents authenticate with the credential issued at claim time (`docs/AGENT_PROTOCOL.md`); identity claims inside message payloads are ignored.
 7. **Never** add supermemory, mem0, or any memory/agent framework as a dependency, and never call their hosted APIs. They are design inspiration only; the patterns live in `docs/MEMORY_DESIGN.md`.
@@ -49,5 +48,5 @@ Never install a new package without checking `docs/ARCHITECTURE.md` first. If th
 
 - Stateless request handlers only. No in-memory state that a second instance wouldn't have.
 - Database access goes through Supabase's pooled connection (Supavisor). Never open direct per-request connections.
-- Heavy work (embedding, extraction, email) is queued, never inline in a request (`docs/ARCHITECTURE.md`).
+- Heavy work (email) is queued, never inline in a request (`docs/ARCHITECTURE.md`). There is no server-side embedding or extraction work — the server makes zero LLM calls.
 - Every query you write must name the index it uses (from `docs/DB_SCHEMA.md`). If no index fits, stop and flag it.
