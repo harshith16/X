@@ -12,6 +12,8 @@ export interface LogPayload {
   idempotency_key?: string;
   error?: string;
   handle?: string;
+  approval_id?: string;
+  fact_id?: string;
 }
 
 export interface LogEntry extends LogPayload {

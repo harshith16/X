@@ -7,9 +7,15 @@ import { signOut } from "@/app/actions";
 
 interface RailProps {
   ownerEmail: string;
+  activeView?: "chats" | "knowledge";
+  onSelectView?: (view: "chats" | "knowledge") => void;
 }
 
-export function Rail({ ownerEmail }: RailProps) {
+export function Rail({
+  ownerEmail,
+  activeView = "chats",
+  onSelectView,
+}: RailProps) {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const settingsRef = useRef<HTMLDivElement>(null);
   const initials = initialsFromEmail(ownerEmail);
@@ -32,13 +38,19 @@ export function Rail({ ownerEmail }: RailProps) {
       aria-label="Navigation rail"
       className="flex h-full w-[60px] min-w-[60px] shrink-0 flex-col justify-between items-center border-r border-q-separator bg-q-panel py-3.5 z-20 select-none"
     >
-      {/* Top: Active Chats icon */}
+      {/* Top: Active Chats icon and Knowledge icon */}
       <div className="flex flex-col items-center gap-2">
         <button
           type="button"
+          id="rail-chats-btn"
           aria-label="Chats"
           title="Chats"
-          className="apple-btn flex h-10 w-10 items-center justify-center rounded-xl text-q-accent transition-colors hover:bg-q-secondary-elevated active:scale-[0.97]"
+          onClick={() => onSelectView?.("chats")}
+          className={`apple-btn flex h-10 w-10 items-center justify-center rounded-xl transition-colors active:scale-[0.97] ${
+            activeView === "chats"
+              ? "text-q-accent bg-q-secondary-elevated/60"
+              : "text-q-text-2 hover:bg-q-secondary-elevated hover:text-q-text"
+          }`}
         >
           <svg
             width="22"
@@ -52,6 +64,34 @@ export function Rail({ ownerEmail }: RailProps) {
             aria-hidden="true"
           >
             <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+          </svg>
+        </button>
+
+        <button
+          type="button"
+          id="rail-knowledge-btn"
+          aria-label="What your agent knows"
+          title="What your agent knows"
+          onClick={() => onSelectView?.("knowledge")}
+          className={`apple-btn flex h-10 w-10 items-center justify-center rounded-xl transition-colors active:scale-[0.97] ${
+            activeView === "knowledge"
+              ? "text-q-accent bg-q-secondary-elevated/60"
+              : "text-q-text-2 hover:bg-q-secondary-elevated hover:text-q-text"
+          }`}
+        >
+          <svg
+            width="21"
+            height="21"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            aria-hidden="true"
+          >
+            <path d="M12 2a8 8 0 0 0-8 8c0 3.37 2.06 6.26 5 7.46V20a2 2 0 0 0 2 2h2a2 2 0 0 0 2-2v-2.54c2.94-1.2 5-4.09 5-7.46a8 8 0 0 0-8-8z" />
+            <path d="M9 22h6" />
           </svg>
         </button>
       </div>

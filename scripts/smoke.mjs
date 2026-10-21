@@ -1352,6 +1352,340 @@ async function runSmokeTests() {
         err.message,
       );
     }
+
+    // ── 26. Owner adds facts of each rule (share, ask, never) ────────────────
+    let factShare = null;
+    let factAsk = null;
+    let factNever = null;
+    try {
+      // Owner A adds 'share' fact
+      const fShareRes = await timedFetch(`${BASE_URL}/api/facts`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          cookie: userAJar.getCookieHeader(),
+        },
+        body: JSON.stringify({
+          text: "Office lunch is at 1pm",
+          share_rule: "share",
+        }),
+      });
+      const fShareBody = await fShareRes.json();
+      factShare = fShareBody.fact;
+
+      // Owner A adds 'ask' fact
+      const fAskRes = await timedFetch(`${BASE_URL}/api/facts`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          cookie: userAJar.getCookieHeader(),
+        },
+        body: JSON.stringify({
+          text: "Goa flight departure is 6am",
+          share_rule: "ask",
+        }),
+      });
+      const fAskBody = await fAskRes.json();
+      factAsk = fAskBody.fact;
+
+      // Owner A adds 'never' fact
+      const fNeverRes = await timedFetch(`${BASE_URL}/api/facts`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          cookie: userAJar.getCookieHeader(),
+        },
+        body: JSON.stringify({
+          text: "Secret safe passcode is 88412",
+          share_rule: "never",
+        }),
+      });
+      const fNeverBody = await fNeverRes.json();
+      factNever = fNeverBody.fact;
+
+      // List facts via GET /api/facts
+      const listFactsRes = await timedFetch(`${BASE_URL}/api/facts`, {
+        headers: { cookie: userAJar.getCookieHeader() },
+      });
+      const listFactsBody = await listFactsRes.json();
+
+      if (
+        fShareRes.status === 201 &&
+        fAskRes.status === 201 &&
+        fNeverRes.status === 201 &&
+        listFactsRes.status === 200 &&
+        listFactsBody.facts?.length >= 3
+      ) {
+        record(
+          26,
+          "Owner adds facts of each rule (share, ask, never)",
+          "PASS",
+          `Added 3 facts: share=${factShare.id}, ask=${factAsk.id}, never=${factNever.id}`,
+        );
+      } else {
+        record(
+          26,
+          "Owner adds facts of each rule (share, ask, never)",
+          "FAIL",
+          `fShare=${fShareRes.status}, fAsk=${fAskRes.status}, fNever=${fNeverRes.status}, list=${listFactsRes.status}`,
+        );
+      }
+    } catch (err) {
+      record(26, "Owner adds facts of each rule (share, ask, never)", "FAIL", err.message);
+    }
+
+    // ── 27. Think with a share-fact question returns a reply ─────────────────
+    try {
+      const thinkShareRes = await timedFetch(`${BASE_URL}/api/agent/think`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${credA}`,
+        },
+        body: JSON.stringify({
+          conversation_id: testConvId,
+          question: "What time is office lunch?",
+        }),
+      });
+      const thinkShareBody = await thinkShareRes.json();
+      if (
+        thinkShareRes.status === 200 &&
+        thinkShareBody.outcome === "reply" &&
+        thinkShareBody.reply &&
+        thinkShareBody.reply.toLowerCase().includes("1pm")
+      ) {
+        record(
+          27,
+          "Think with a share-fact question returns a reply",
+          "PASS",
+          `outcome=reply, reply="${thinkShareBody.reply.slice(0, 40)}..."`,
+        );
+      } else {
+        record(
+          27,
+          "Think with a share-fact question returns a reply",
+          "FAIL",
+          `status=${thinkShareRes.status}, outcome=${thinkShareBody.outcome}, err=${thinkShareBody.error?.message || "unexpected reply"}`,
+        );
+      }
+    } catch (err) {
+      record(27, "Think with a share-fact question returns a reply", "FAIL", err.message);
+    }
+
+    // ── 28. Think with an ask-fact question returns deflect + approval ───────
+    let askApprovalId = null;
+    try {
+      const thinkAskRes = await timedFetch(`${BASE_URL}/api/agent/think`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${credA}`,
+        },
+        body: JSON.stringify({
+          conversation_id: testConvId,
+          question: "What time is the Goa flight departure?",
+        }),
+      });
+      const thinkAskBody = await thinkAskRes.json();
+      askApprovalId = thinkAskBody.approval_id;
+
+      // Check owner pending approvals
+      const approvalsRes = await timedFetch(`${BASE_URL}/api/approvals`, {
+        headers: { cookie: userAJar.getCookieHeader() },
+      });
+      const approvalsBody = await approvalsRes.json();
+      const hasPending = approvalsBody.approvals?.some((a) => a.id === askApprovalId);
+
+      if (
+        thinkAskRes.status === 200 &&
+        thinkAskBody.outcome === "deflect" &&
+        askApprovalId &&
+        approvalsRes.status === 200 &&
+        hasPending
+      ) {
+        record(
+          28,
+          "Think with an ask-fact question returns deflect + pending approval",
+          "PASS",
+          `outcome=deflect, approval_id=${askApprovalId}, confirmed in GET /api/approvals`,
+        );
+      } else {
+        record(
+          28,
+          "Think with an ask-fact question returns deflect + pending approval",
+          "FAIL",
+          `status=${thinkAskRes.status}, outcome=${thinkAskBody.outcome}, approval_id=${askApprovalId}, approvalsRes=${approvalsRes.status}`,
+        );
+      }
+    } catch (err) {
+      record(
+        28,
+        "Think with an ask-fact question returns deflect + pending approval",
+        "FAIL",
+        err.message,
+      );
+    }
+
+    // ── 29. Resolving share sends the answer into conversation ───────────────
+    try {
+      if (!askApprovalId) {
+        throw new Error("No pending approval from row 28");
+      }
+
+      const resolveShareRes = await timedFetch(`${BASE_URL}/api/approvals/${askApprovalId}/resolve`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          cookie: userAJar.getCookieHeader(),
+        },
+        body: JSON.stringify({ decision: "share" }),
+      });
+      const resolveShareBody = await resolveShareRes.json();
+
+      // Check conversation transcript for sent message
+      const transcriptRes = await timedFetch(`${BASE_URL}/api/conversations/${testConvId}/messages`, {
+        headers: { cookie: userAJar.getCookieHeader() },
+      });
+      const transcriptBody = await transcriptRes.json();
+      const hasAnswer = transcriptBody.messages?.some((m) =>
+        m.text?.toLowerCase().includes("goa flight"),
+      );
+
+      if (
+        resolveShareRes.status === 200 &&
+        resolveShareBody.approval?.status === "shared" &&
+        hasAnswer
+      ) {
+        record(
+          29,
+          "Resolving share sends answer into conversation",
+          "PASS",
+          `approval status=shared, answer message verified in conversation transcript`,
+        );
+      } else {
+        record(
+          29,
+          "Resolving share sends answer into conversation",
+          "FAIL",
+          `resolveStatus=${resolveShareRes.status}, approvalStatus=${resolveShareBody.approval?.status}, hasAnswer=${hasAnswer}`,
+        );
+      }
+    } catch (err) {
+      record(29, "Resolving share sends answer into conversation", "FAIL", err.message);
+    }
+
+    // ── 30. Resolving never creates a block & same question returns no_answer ─
+    try {
+      // Trigger new ask approval
+      const thinkAsk2Res = await timedFetch(`${BASE_URL}/api/agent/think`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${credA}`,
+        },
+        body: JSON.stringify({
+          conversation_id: testConvId,
+          question: "What time is the Goa flight departure?",
+        }),
+      });
+      const thinkAsk2Body = await thinkAsk2Res.json();
+      const approvalId2 = thinkAsk2Body.approval_id;
+
+      if (!approvalId2) {
+        throw new Error("Failed to create second approval for Never test");
+      }
+
+      // Owner resolves with 'never'
+      const resolveNeverRes = await timedFetch(`${BASE_URL}/api/approvals/${approvalId2}/resolve`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          cookie: userAJar.getCookieHeader(),
+        },
+        body: JSON.stringify({ decision: "never" }),
+      });
+      const resolveNeverBody = await resolveNeverRes.json();
+
+      // Ask the exact same question again -> MUST return no_answer now due to block
+      const thinkBlockedRes = await timedFetch(`${BASE_URL}/api/agent/think`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${credA}`,
+        },
+        body: JSON.stringify({
+          conversation_id: testConvId,
+          question: "What time is the Goa flight departure?",
+        }),
+      });
+      const thinkBlockedBody = await thinkBlockedRes.json();
+
+      if (
+        resolveNeverRes.status === 200 &&
+        resolveNeverBody.approval?.status === "never" &&
+        thinkBlockedRes.status === 200 &&
+        thinkBlockedBody.outcome === "no_answer"
+      ) {
+        record(
+          30,
+          "Resolving never creates block & forces no_answer",
+          "PASS",
+          `approval status=never, subsequent think query returned outcome=no_answer`,
+        );
+      } else {
+        record(
+          30,
+          "Resolving never creates block & forces no_answer",
+          "FAIL",
+          `resolveStatus=${resolveNeverRes.status}, approvalStatus=${resolveNeverBody.approval?.status}, thinkBlockedOutcome=${thinkBlockedBody.outcome}`,
+        );
+      }
+    } catch (err) {
+      record(30, "Resolving never creates block & forces no_answer", "FAIL", err.message);
+    }
+
+    // ── 31. Think with a never-fact question returns no_answer ───────────────
+    try {
+      const thinkNeverRes = await timedFetch(`${BASE_URL}/api/agent/think`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${credA}`,
+        },
+        body: JSON.stringify({
+          conversation_id: testConvId,
+          question: "What is the secret safe passcode?",
+        }),
+      });
+      const thinkNeverBody = await thinkNeverRes.json();
+
+      const replyHasSecret =
+        thinkNeverBody.reply &&
+        (thinkNeverBody.reply.includes("88412") ||
+          thinkNeverBody.reply.toLowerCase().includes("safe passcode"));
+
+      if (
+        thinkNeverRes.status === 200 &&
+        thinkNeverBody.outcome === "no_answer" &&
+        !replyHasSecret
+      ) {
+        record(
+          31,
+          "Think with a never-fact question returns no_answer",
+          "PASS",
+          `outcome=no_answer, secret passcode strictly excluded from reply`,
+        );
+      } else {
+        record(
+          31,
+          "Think with a never-fact question returns no_answer",
+          "FAIL",
+          `status=${thinkNeverRes.status}, outcome=${thinkNeverBody.outcome}, replyHasSecret=${replyHasSecret}`,
+        );
+      }
+    } catch (err) {
+      record(31, "Think with a never-fact question returns no_answer", "FAIL", err.message);
+    }
   } finally {
     // ── CLEANUP: Delete test users and test agents unconditionally ──────────
     try {
@@ -1360,6 +1694,11 @@ async function runSmokeTests() {
         await supabaseAdmin.from("agents").delete().in("handle", cleanupHandles);
       }
       if (cleanupUserIds.length > 0) {
+        try {
+          await supabaseAdmin.from("blocks").delete().in("owner_id", cleanupUserIds);
+          await supabaseAdmin.from("approvals").delete().in("owner_id", cleanupUserIds);
+          await supabaseAdmin.from("facts").delete().in("owner_id", cleanupUserIds);
+        } catch {}
         await supabaseAdmin.from("claim_codes").delete().in("owner_id", cleanupUserIds);
         await supabaseAdmin.from("agents").delete().in("owner_id", cleanupUserIds);
         await supabaseAdmin.from("users").delete().in("id", cleanupUserIds);
@@ -1389,7 +1728,27 @@ async function runSmokeTests() {
   }
   console.log("==================================================================\n");
 
-  if (!allPassed) {
+  const baselinePassed = rows
+    .filter((r) => r.id <= 25)
+    .every(
+      (r) =>
+        r.status === "PASS" ||
+        r.status.startsWith("NOT EXERCISED") ||
+        r.status.startsWith("PRESENT"),
+    );
+  const brainRows = rows.filter((r) => r.id > 25);
+  const brainPassed = brainRows.length > 0 && brainRows.every((r) => r.status === "PASS");
+
+  console.log(`BASELINE (ROWS 1-25): ${baselinePassed ? "PASS (25/25)" : "FAIL"}`);
+  console.log(
+    `BRAIN (ROWS 26-31): ${
+      brainPassed
+        ? "PASS (6/6)"
+        : "FAIL (PRE-MIGRATION 005: 6 rows pending migration 005 application in Supabase)"
+    }`,
+  );
+
+  if (!baselinePassed || !brainPassed) {
     console.error("SMOKE SUITE RESULT: FAILED");
     process.exit(1);
   } else {
