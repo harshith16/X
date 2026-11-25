@@ -61,11 +61,14 @@ alter table public.approvals enable row level security;
 alter table public.blocks enable row level security;
 
 -- Owner-only SELECT policies (writes are server-mediated via the service client)
+drop policy if exists "facts_owner_select" on public.facts;
 create policy "facts_owner_select" on public.facts
   for select using (owner_id = auth.uid());
 
+drop policy if exists "approvals_owner_select" on public.approvals;
 create policy "approvals_owner_select" on public.approvals
   for select using (owner_id = auth.uid());
 
+drop policy if exists "blocks_owner_select" on public.blocks;
 create policy "blocks_owner_select" on public.blocks
   for select using (owner_id = auth.uid());

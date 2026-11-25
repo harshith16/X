@@ -14,6 +14,10 @@ export interface LogPayload {
   handle?: string;
   approval_id?: string;
   fact_id?: string;
+  sender_handle?: string;
+  category?: string;
+  invite_id?: string;
+  contact_id?: string;
 }
 
 export interface LogEntry extends LogPayload {

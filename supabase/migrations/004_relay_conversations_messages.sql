@@ -59,6 +59,7 @@ alter table public.participants enable row level security;
 alter table public.messages enable row level security;
 
 -- conversations policy: owners can view conversations their agent is participating in
+drop policy if exists "conversations_owner_select" on public.conversations;
 create policy "conversations_owner_select" on public.conversations
   for select using (
     exists (
@@ -69,6 +70,7 @@ create policy "conversations_owner_select" on public.conversations
   );
 
 -- participants policy: owners can view participants where their agent is participating
+drop policy if exists "participants_owner_select" on public.participants;
 create policy "participants_owner_select" on public.participants
   for select using (
     exists (
@@ -79,6 +81,7 @@ create policy "participants_owner_select" on public.participants
   );
 
 -- messages policy: owners can view messages in conversations where their agent is a participant
+drop policy if exists "messages_owner_select" on public.messages;
 create policy "messages_owner_select" on public.messages
   for select using (
     exists (

@@ -1,3 +1,4 @@
+import { randomBytes } from "node:crypto";
 import { NextResponse, type NextRequest } from "next/server";
 import { getServiceClient } from "@/server/db/clients";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
@@ -57,7 +58,10 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // 2. Generate magic link token
+    // 2. Establish session: Try magic link first, with password fallback if generateLink fails
+    const supabase = await createSupabaseServerClient();
+    let authenticated = false;
+
     const { data: linkData, error: linkError } = await serviceClient.auth.admin.generateLink({
       type: "magiclink",
       email: devEmail,
@@ -65,33 +69,38 @@ export async function POST(request: NextRequest) {
 
     const hashedToken = linkData?.properties?.hashed_token;
 
-    if (linkError || !hashedToken) {
-      logger.error({
-        msg: `dev-login: failed to generate magic link: ${linkError?.message ?? "missing hashed_token"}`,
-        request_id: requestId,
+    if (!linkError && hashedToken) {
+      const { error: verifyError } = await supabase.auth.verifyOtp({
+        token_hash: hashedToken,
+        type: "magiclink",
       });
-      return NextResponse.json(
-        {
-          error: {
-            code: "INTERNAL_ERROR",
-            message: "Failed to generate development sign-in token.",
-            request_id: requestId,
-          },
-        },
-        { status: 500 },
-      );
+      if (!verifyError) {
+        authenticated = true;
+      }
     }
 
-    // 3. Verify OTP using SSR server client so session cookies are written to the response
-    const supabase = await createSupabaseServerClient();
-    const { error: verifyError } = await supabase.auth.verifyOtp({
-      token_hash: hashedToken,
-      type: "magiclink",
-    });
+    if (!authenticated && devUserId) {
+      // Fallback: set an ephemeral random password and sign in directly
+      const devPassword = randomBytes(24).toString("base64url");
+      await serviceClient.auth.admin.updateUserById(devUserId, { password: devPassword });
+      const { error: signInError } = await supabase.auth.signInWithPassword({
+        email: devEmail,
+        password: devPassword,
+      });
 
-    if (verifyError) {
+      if (!signInError) {
+        authenticated = true;
+      } else {
+        logger.error({
+          msg: `dev-login: password sign-in fallback failed: ${signInError.message}`,
+          request_id: requestId,
+        });
+      }
+    }
+
+    if (!authenticated) {
       logger.error({
-        msg: `dev-login: verifyOtp failed: ${verifyError.message}`,
+        msg: `dev-login: failed to authenticate test user: ${linkError?.message ?? "unknown"}`,
         request_id: requestId,
       });
       return NextResponse.json(

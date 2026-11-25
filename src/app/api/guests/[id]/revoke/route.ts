@@ -1,13 +1,16 @@
-import { NextResponse } from "next/server";
+import { NextResponse, type NextRequest } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
-import { activateAgent, ClaimError } from "@/server/identity/claim";
-import { newRequestId } from "@/lib/logger";
+import { revokeGuestInvite, GuestError } from "@/server/guests/service";
+import { newRequestId, logger } from "@/lib/logger";
 
-export async function POST() {
+export async function POST(
+  request: NextRequest,
+  context: { params: Promise<{ id: string }> },
+) {
   const requestId = newRequestId();
+  const { id } = await context.params;
 
   try {
-    // 1. Authenticated session owner only
     const supabase = await createSupabaseServerClient();
     const {
       data: { user },
@@ -18,7 +21,7 @@ export async function POST() {
         {
           error: {
             code: "UNAUTHENTICATED",
-            message: "You must be signed in to activate an agent.",
+            message: "You must be signed in to revoke guest invites.",
             request_id: requestId,
           },
         },
@@ -26,16 +29,14 @@ export async function POST() {
       );
     }
 
-    // 2. Activate agent
-    const { agent } = await activateAgent(user.id, requestId);
+    const result = await revokeGuestInvite(user.id, id, requestId);
 
     return NextResponse.json({
-      ok: true,
-      agent,
+      ok: result.ok,
       request_id: requestId,
     });
   } catch (err: unknown) {
-    if (err instanceof ClaimError) {
+    if (err instanceof GuestError) {
       return NextResponse.json(
         {
           error: {
@@ -48,11 +49,16 @@ export async function POST() {
       );
     }
 
+    logger.error({
+      msg: `Unexpected error in POST /api/guests/${id}/revoke: ${err instanceof Error ? err.message : String(err)}`,
+      request_id: requestId,
+    });
+
     return NextResponse.json(
       {
         error: {
           code: "INTERNAL_ERROR",
-          message: "An unexpected error occurred while activating your agent.",
+          message: "Failed to revoke guest invite.",
           request_id: requestId,
         },
       },

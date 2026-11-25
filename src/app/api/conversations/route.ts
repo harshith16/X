@@ -25,12 +25,31 @@ export async function GET(request: NextRequest) {
       );
     }
 
+    const { getOwnerAgent } = await import("@/server/identity/claim");
+    const agent = await getOwnerAgent(user.id, requestId);
+    if (!agent) {
+      return NextResponse.json(
+        {
+          error: {
+            code: "FORBIDDEN",
+            message: "Guest accounts cannot list owner conversations.",
+            request_id: requestId,
+          },
+        },
+        { status: 403 },
+      );
+    }
+
     const conversations = await getOwnerConversations(user.id, requestId);
+    const main = conversations.filter((c: any) => !c.is_request);
+    const requests = conversations.filter((c: any) => Boolean(c.is_request));
 
     return NextResponse.json(
       {
         ok: true,
         conversations,
+        main,
+        requests,
         request_id: requestId,
       },
       { status: 200 },

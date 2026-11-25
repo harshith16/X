@@ -88,6 +88,7 @@ export async function claimAgent(
   ownerId: string,
   handle: string,
   requestId: string,
+  xHandle?: string,
 ): Promise<{ agent: AgentRecord; isExisting: boolean }> {
   const parseResult = HandleSchema.safeParse(handle);
   if (!parseResult.success) {
@@ -99,6 +100,7 @@ export async function claimAgent(
   }
 
   const cleanHandle = parseResult.data;
+  const cleanXHandle = xHandle ? xHandle.trim().toLowerCase().replace(/^@/, "") : cleanHandle;
   const db = getServiceClient();
 
   // 1. One agent per owner check using index agents_owner_id_idx
@@ -123,22 +125,50 @@ export async function claimAgent(
       request_id: requestId,
       owner_id: ownerId,
     });
-    return { agent: existingAgent as AgentRecord, isExisting: true };
+    const agentRecord = existingAgent as AgentRecord;
+    if (!agentRecord.x_handle) {
+      agentRecord.x_handle = cleanXHandle || agentRecord.handle;
+    }
+    return { agent: agentRecord, isExisting: true };
   }
 
   // 2. Insert new agent with status "pending_claim"
-  const insertPayload = {
+  const insertPayload: Record<string, unknown> = {
     owner_id: ownerId,
     handle: cleanHandle,
     display_name: cleanHandle,
+    x_handle: cleanXHandle,
     status: "pending_claim",
   };
 
-  const { data: newAgent, error: insertError } = await db
+  let { data: newAgent, error: insertError } = await db
     .from("agents")
     .insert(insertPayload)
     .select("*")
     .single();
+
+  // Fallback if migration 008 hasn't added x_handle column yet
+  if (
+    insertError &&
+    (insertError.code === "42703" || insertError.message.includes("x_handle"))
+  ) {
+    delete insertPayload.x_handle;
+    const fallback = await db
+      .from("agents")
+      .insert(insertPayload)
+      .select("*")
+      .single();
+
+    if (fallback.data) {
+      newAgent = {
+        ...fallback.data,
+        x_handle: cleanXHandle,
+      };
+      insertError = null;
+    } else {
+      insertError = fallback.error;
+    }
+  }
 
   if (insertError) {
     // Check for Postgres unique violation on agents_handle_idx
@@ -279,5 +309,10 @@ export async function getOwnerAgent(
     throw new ClaimError("DATABASE_ERROR", "Failed to retrieve owner agent", 500);
   }
 
-  return (data as AgentRecord) ?? null;
+  const agent = (data as AgentRecord) ?? null;
+  if (agent && !agent.x_handle) {
+    agent.x_handle = agent.display_name || agent.handle;
+  }
+
+  return agent;
 }

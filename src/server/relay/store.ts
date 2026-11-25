@@ -26,6 +26,7 @@ export class RelayStore {
     agentAId: string,
     agentBId: string,
     requestId: string,
+    isRequest: boolean = false,
   ): Promise<ConversationRecord> {
     const [firstId, secondId] = agentAId < agentBId ? [agentAId, agentBId] : [agentBId, agentAId];
     const db = getServiceClient();
@@ -45,23 +46,45 @@ export class RelayStore {
 
       if (!error && !data) {
         // Insert new conversation
-        const { data: newConv, error: insertErr } = await db
-          .from("conversations")
-          .insert({
-            agent_a_id: firstId,
-            agent_b_id: secondId,
-            kind: "agent_agent",
-          })
-          .select("*")
-          .single();
+        let newConv: any = null;
+        try {
+          const res = await db
+            .from("conversations")
+            .insert({
+              agent_a_id: firstId,
+              agent_b_id: secondId,
+              kind: "agent_agent",
+              is_request: isRequest,
+            })
+            .select("*")
+            .single();
+          newConv = res.data;
+        } catch {
+          // If is_request column not yet in DB, insert without it
+          const res = await db
+            .from("conversations")
+            .insert({
+              agent_a_id: firstId,
+              agent_b_id: secondId,
+              kind: "agent_agent",
+            })
+            .select("*")
+            .single();
+          newConv = res.data;
+        }
 
-        if (!insertErr && newConv) {
+        if (newConv) {
           // Also insert participants
           await db.from("participants").insert([
             { conversation_id: newConv.id, agent_id: firstId },
             { conversation_id: newConv.id, agent_id: secondId },
           ]);
-          return newConv as ConversationRecord;
+          const convRecord: ConversationRecord = {
+            ...newConv,
+            is_request: isRequest,
+          };
+          memoryConversations.set(newConv.id, convRecord);
+          return convRecord;
         }
       }
     } catch {
@@ -82,11 +105,39 @@ export class RelayStore {
       kind: "agent_agent",
       agent_a_id: firstId,
       agent_b_id: secondId,
+      is_request: isRequest,
       created_at: now,
       updated_at: now,
     };
     memoryConversations.set(id, newConv);
     return newConv;
+  }
+
+  /**
+   * Registers a conversation into the store (e.g. guest conversations).
+   */
+  static registerConversation(conv: ConversationRecord): void {
+    memoryConversations.set(conv.id, conv);
+  }
+
+  /**
+   * Accepts a conversation (sets is_request = false).
+   */
+  static async acceptConversation(conversationId: string): Promise<void> {
+    const db = getServiceClient();
+    try {
+      await db
+        .from("conversations")
+        .update({ is_request: false })
+        .eq("id", conversationId);
+    } catch {
+      // Ignore DB error
+    }
+
+    const mem = memoryConversations.get(conversationId);
+    if (mem) {
+      mem.is_request = false;
+    }
   }
 
   /**
@@ -125,42 +176,51 @@ export class RelayStore {
    */
   static async insertMessage(
     conversationId: string,
-    senderAgentId: string,
+    senderAgentId: string | null,
     body: string,
     idempotencyKey: string,
+    senderOwnerId: string | null = null,
   ): Promise<MessageRecord> {
     const db = getServiceClient();
 
     // 1. Try Supabase
     try {
       // Get max seq for conversation
-      const { data: lastMsgs } = await db
+      const { data: lastMsgs, error: seqErr } = await db
         .from("messages")
         .select("seq")
         .eq("conversation_id", conversationId)
         .order("seq", { ascending: false })
         .limit(1);
 
+      if (seqErr) {
+        throw new Error(`Failed to query message seq: ${seqErr.message}`);
+      }
+
       const nextSeq = lastMsgs && lastMsgs[0] ? Number(lastMsgs[0].seq) + 1 : 1;
+
+      const insertData: any = {
+        conversation_id: conversationId,
+        seq: nextSeq,
+        body,
+        idempotency_key: idempotencyKey,
+        status: "queued",
+      };
+      if (senderAgentId) insertData.sender_agent_id = senderAgentId;
+      if (senderOwnerId) insertData.sender_owner_id = senderOwnerId;
 
       const { data: newMsg, error } = await db
         .from("messages")
-        .insert({
-          conversation_id: conversationId,
-          seq: nextSeq,
-          sender_agent_id: senderAgentId,
-          body,
-          idempotency_key: idempotencyKey,
-          status: "queued",
-        })
+        .insert(insertData)
         .select("*")
         .single();
 
       if (!error && newMsg) {
+        memoryMessages.set(newMsg.id, newMsg as MessageRecord);
         return newMsg as MessageRecord;
       }
     } catch {
-      // Fall through to memory
+      // Fall through to memory fallback
     }
 
     // 2. Memory fallback
@@ -177,8 +237,8 @@ export class RelayStore {
       id,
       conversation_id: conversationId,
       seq: maxSeq + 1,
-      sender_agent_id: senderAgentId,
-      sender_owner_id: null,
+      sender_agent_id: senderAgentId || "",
+      sender_owner_id: senderOwnerId,
       body,
       idempotency_key: idempotencyKey,
       status: "queued",
@@ -212,7 +272,7 @@ export class RelayStore {
           .from("messages")
           .select("*")
           .in("conversation_id", convIds)
-          .neq("sender_agent_id", agentId)
+          .or(`sender_agent_id.neq.${agentId},sender_agent_id.is.null`)
           .order("created_at", { ascending: false })
           .limit(limit);
 
@@ -315,19 +375,21 @@ export class RelayStore {
    */
   static async getConversationsForAgent(agentId: string): Promise<ConversationRecord[]> {
     const db = getServiceClient();
+    const list: ConversationRecord[] = [];
     try {
       const { data, error } = await db
         .from("conversations")
         .select("*")
         .or(`agent_a_id.eq.${agentId},agent_b_id.eq.${agentId}`);
-      if (!error && data) return data as ConversationRecord[];
+      if (!error && data) {
+        list.push(...(data as ConversationRecord[]));
+      }
     } catch {
       // Fall through to memory
     }
 
-    const list: ConversationRecord[] = [];
     for (const c of memoryConversations.values()) {
-      if (c.agent_a_id === agentId || c.agent_b_id === agentId) {
+      if ((c.agent_a_id === agentId || c.agent_b_id === agentId) && !list.some((existing) => existing.id === c.id)) {
         list.push(c);
       }
     }
@@ -339,20 +401,22 @@ export class RelayStore {
    */
   static async getMessagesForConversation(conversationId: string): Promise<MessageRecord[]> {
     const db = getServiceClient();
+    const list: MessageRecord[] = [];
     try {
       const { data, error } = await db
         .from("messages")
         .select("*")
         .eq("conversation_id", conversationId)
         .order("seq", { ascending: true });
-      if (!error && data) return data as MessageRecord[];
+      if (!error && data && data.length > 0) {
+        list.push(...(data as MessageRecord[]));
+      }
     } catch {
       // Fall through to memory
     }
 
-    const list: MessageRecord[] = [];
     for (const m of memoryMessages.values()) {
-      if (m.conversation_id === conversationId) {
+      if (m.conversation_id === conversationId && !list.some((existing) => existing.id === m.id)) {
         list.push(m);
       }
     }

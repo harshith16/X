@@ -9,9 +9,13 @@ const PUBLIC_PATHS = [
   "/api/readyz",
   "/api/dev-login",
   "/api/agent",
+  "/g",
 ];
 
 function isPublic(pathname: string): boolean {
+  if (pathname === "/g/chat" || pathname.startsWith("/g/chat/")) {
+    return false;
+  }
   return PUBLIC_PATHS.some((p) => pathname === p || pathname.startsWith(p + "/"));
 }
 
@@ -41,6 +45,17 @@ export async function proxy(request: NextRequest) {
 
   // Fast path: unauthenticated user on protected path redirected immediately
   if (!isPublic(pathname) && !hasAuthCookie(request)) {
+    if (pathname.startsWith("/api/")) {
+      return NextResponse.json(
+        {
+          error: {
+            code: "UNAUTHENTICATED",
+            message: "Authentication required.",
+          },
+        },
+        { status: 401 },
+      );
+    }
     const loginUrl = request.nextUrl.clone();
     loginUrl.pathname = "/login";
     return NextResponse.redirect(loginUrl);
@@ -85,6 +100,17 @@ export async function proxy(request: NextRequest) {
 
   // Redirect unauthenticated users to /login for protected routes.
   if (!user && !isPublic(pathname)) {
+    if (pathname.startsWith("/api/")) {
+      return NextResponse.json(
+        {
+          error: {
+            code: "UNAUTHENTICATED",
+            message: "Authentication required.",
+          },
+        },
+        { status: 401 },
+      );
+    }
     const loginUrl = request.nextUrl.clone();
     loginUrl.pathname = "/login";
     return NextResponse.redirect(loginUrl);

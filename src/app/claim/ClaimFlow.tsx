@@ -17,6 +17,7 @@ export function ClaimFlow({ initialStep, initialHandle = "", appUrl }: ClaimFlow
 
   const [step, setStep] = useState<"name_agent" | "tweet_gate">(initialStep);
   const [handle, setHandle] = useState(initialHandle);
+  const [xHandle, setXHandle] = useState("");
   const [claimedHandle, setClaimedHandle] = useState(initialHandle);
 
   // Availability state
@@ -28,9 +29,11 @@ export function ClaimFlow({ initialStep, initialHandle = "", appUrl }: ClaimFlow
   const [claiming, setClaiming] = useState(false);
   const [claimError, setClaimError] = useState("");
 
-  // Activate state
-  const [activating, setActivating] = useState(false);
-  const [activateError, setActivateError] = useState("");
+  // Tweet verification state
+  const [tweetUrl, setTweetUrl] = useState("");
+  const [verifying, setVerifying] = useState(false);
+  const [verified, setVerified] = useState(false);
+  const [verifyError, setVerifyError] = useState("");
 
   const cleanHandle = handle.trim().toLowerCase();
   const isValidFormat = /^[a-z0-9_]{3,24}$/.test(cleanHandle);
@@ -93,11 +96,16 @@ export function ClaimFlow({ initialStep, initialHandle = "", appUrl }: ClaimFlow
     setClaiming(true);
     setClaimError("");
 
+    const cleanX = xHandle.trim().toLowerCase().replace(/^@/, "");
+
     try {
       const res = await fetch("/api/agents/claim", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ handle: cleanHandle }),
+        body: JSON.stringify({
+          handle: cleanHandle,
+          x_handle: cleanX || cleanHandle,
+        }),
       });
 
       const data = await res.json();
@@ -118,30 +126,46 @@ export function ClaimFlow({ initialStep, initialHandle = "", appUrl }: ClaimFlow
     }
   }
 
-  async function handleActivate() {
-    setActivating(true);
-    setActivateError("");
+  async function handleVerifyTweet(e: React.FormEvent) {
+    e.preventDefault();
+    const trimmedUrl = tweetUrl.trim();
+    if (!trimmedUrl || verifying || verified) return;
+
+    setVerifying(true);
+    setVerifyError("");
 
     try {
-      const res = await fetch("/api/agents/activate", {
+      const res = await fetch("/api/claim/verify-tweet", {
         method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ tweet_url: trimmedUrl }),
       });
 
       const data = await res.json();
 
       if (!res.ok) {
-        setActivateError(data.error?.message ?? "Failed to activate agent.");
-        setActivating(false);
-      } else {
-        // Successfully activated -> redirect to shell
-        startTransition(() => {
-          router.push("/");
-          router.refresh();
-        });
+        setVerifyError(data.error?.message ?? "We couldn't verify that post link.");
+        setVerifying(false);
+        return;
       }
+
+      if (!data.verified) {
+        setVerifyError(data.reason ?? "We couldn't verify that post.");
+        setVerifying(false);
+        return;
+      }
+
+      // Verified! Transition to shell
+      setVerified(true);
+      setVerifying(false);
+
+      startTransition(() => {
+        router.push("/");
+        router.refresh();
+      });
     } catch {
-      setActivateError("Network error. Please try again.");
-      setActivating(false);
+      setVerifyError("Network error connecting to verification service. Please try again.");
+      setVerifying(false);
     }
   }
 
@@ -180,7 +204,7 @@ export function ClaimFlow({ initialStep, initialHandle = "", appUrl }: ClaimFlow
 
             <form onSubmit={handleClaim} className="space-y-4">
               <div>
-                <label htmlFor="handle-input" className="sr-only">
+                <label htmlFor="handle-input" className="block text-xs font-medium text-q-muted mb-1.5">
                   Agent handle
                 </label>
                 <div className="relative flex items-center rounded-xl border border-q-hairline bg-q-panel px-4 py-3 transition-all focus-within:border-q-accent focus-within:ring-2 focus-within:ring-q-accent/25">
@@ -226,6 +250,26 @@ export function ClaimFlow({ initialStep, initialHandle = "", appUrl }: ClaimFlow
                 </div>
               </div>
 
+              <div>
+                <label htmlFor="x-handle-input" className="block text-xs font-medium text-q-muted mb-1.5">
+                  Your X handle (optional, defaults to agent name)
+                </label>
+                <div className="relative flex items-center rounded-xl border border-q-hairline bg-q-panel px-4 py-3 transition-all focus-within:border-q-accent focus-within:ring-2 focus-within:ring-q-accent/25">
+                  <span className="text-sm font-medium text-q-muted select-none">@</span>
+                  <input
+                    id="x-handle-input"
+                    type="text"
+                    autoComplete="off"
+                    autoCapitalize="none"
+                    spellCheck="false"
+                    placeholder="username"
+                    value={xHandle}
+                    onChange={(e) => setXHandle(e.target.value.toLowerCase())}
+                    className="ml-1.5 w-full bg-transparent text-sm text-q-text placeholder-q-muted outline-none"
+                  />
+                </div>
+              </div>
+
               {claimError && <p className="text-center text-xs text-q-danger">{claimError}</p>}
 
               <button
@@ -261,7 +305,7 @@ export function ClaimFlow({ initialStep, initialHandle = "", appUrl }: ClaimFlow
               </p>
             </div>
 
-            <div className="space-y-3">
+            <div className="space-y-4">
               {/* Button 1: Post on X */}
               <a
                 id="post-on-x-btn"
@@ -274,20 +318,50 @@ export function ClaimFlow({ initialStep, initialHandle = "", appUrl }: ClaimFlow
                 Post on X
               </a>
 
-              {/* Button 2: I posted it */}
-              <button
-                id="confirm-posted-btn"
-                type="button"
-                onClick={handleActivate}
-                disabled={activating}
-                className="apple-btn w-full rounded-xl border border-q-hairline bg-q-panel hover:bg-q-hairline px-4 py-3 text-sm font-medium text-q-text transition-all active:scale-[0.97] disabled:opacity-50"
-              >
-                {activating ? "Activating agent…" : "I posted it"}
-              </button>
+              {/* Form: Verify tweet link */}
+              <form onSubmit={handleVerifyTweet} className="space-y-3 pt-2">
+                <div>
+                  <label htmlFor="tweet-url-input" className="block text-xs font-medium text-q-muted mb-1.5">
+                    Public tweet link
+                  </label>
+                  <input
+                    id="tweet-url-input"
+                    type="url"
+                    required
+                    value={tweetUrl}
+                    onChange={(e) => {
+                      setTweetUrl(e.target.value);
+                      if (verifyError) setVerifyError("");
+                    }}
+                    placeholder="Paste link to your post on X"
+                    className="w-full rounded-xl border border-q-hairline bg-q-panel px-4 py-3 text-sm text-q-text placeholder-q-muted outline-none transition-all focus:border-q-accent focus:ring-2 focus:ring-q-accent/25"
+                  />
+                </div>
 
-              {activateError && (
-                <p className="text-center text-xs text-q-danger pt-1">{activateError}</p>
-              )}
+                {verifyError && (
+                  <p id="verify-error-msg" className="text-xs text-q-danger leading-relaxed">
+                    {verifyError}
+                  </p>
+                )}
+
+                <button
+                  id="verify-tweet-btn"
+                  type="submit"
+                  disabled={verifying || verified || !tweetUrl.trim()}
+                  className="apple-btn flex w-full items-center justify-center gap-2 rounded-xl bg-q-accent hover:bg-q-accent-hover text-white px-4 py-3 text-sm font-medium transition-all active:scale-[0.97] disabled:opacity-50"
+                >
+                  {verifying ? (
+                    <>
+                      <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-white" />
+                      Verifying post…
+                    </>
+                  ) : verified ? (
+                    "Verified! Activating agent…"
+                  ) : (
+                    "Verify post"
+                  )}
+                </button>
+              </form>
             </div>
           </div>
         )}

@@ -47,19 +47,24 @@ alter table agents enable row level security;
 alter table claim_codes enable row level security;
 
 -- users policies: select, insert, update only own row
+drop policy if exists "users_select_own" on users;
 create policy "users_select_own" on users
   for select using (id = auth.uid());
 
+drop policy if exists "users_insert_own" on users;
 create policy "users_insert_own" on users
   for insert with check (id = auth.uid());
 
+drop policy if exists "users_update_own" on users;
 create policy "users_update_own" on users
   for update using (id = auth.uid()) with check (id = auth.uid());
 
 -- agents policy: all operations only own rows
+drop policy if exists "agents_all_own" on agents;
 create policy "agents_all_own" on agents
   for all using (owner_id = auth.uid()) with check (owner_id = auth.uid());
 
 -- claim_codes policy: select only own rows
+drop policy if exists "claim_codes_select_own" on claim_codes;
 create policy "claim_codes_select_own" on claim_codes
   for select using (owner_id = auth.uid());

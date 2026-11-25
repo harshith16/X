@@ -5,7 +5,8 @@ import { Rail } from "./Rail";
 import { ListColumn, ChatItem } from "./ListColumn";
 import { ConversationColumn, ActiveChat, Message } from "./ConversationColumn";
 import { ApprovalSheet } from "./ApprovalSheet";
-import { KnowledgeView } from "./KnowledgeView";
+import { GuardrailsView } from "./GuardrailsView";
+import { ContactsView } from "./ContactsView";
 
 interface ShellLayoutProps {
   ownerEmail: string;
@@ -23,10 +24,50 @@ export function ShellLayout({
   agent,
   initialConversations = [],
 }: ShellLayoutProps) {
-  const [conversations] = useState<ChatItem[]>(initialConversations);
+  const [conversations, setConversations] = useState<ChatItem[]>(initialConversations);
   const [selectedChatId, setSelectedChatId] = useState<string | null>(null);
   const [messagesByChat, setMessagesByChat] = useState<Record<string, Message[]>>({});
-  const [activeView, setActiveView] = useState<"chats" | "knowledge">("chats");
+  const [activeView, setActiveView] = useState<"chats" | "contacts" | "guardrails" | "knowledge">("chats");
+
+  function handleOpenConversation(targetHandle: string) {
+    const clean = targetHandle.replace(/^@/, "").toLowerCase();
+    const existing = conversations.find(
+      (c) => c.handle.toLowerCase() === clean,
+    );
+    if (existing) {
+      setSelectedChatId(existing.id);
+    }
+    setActiveView("chats");
+  }
+
+  async function handleAcceptRequest(id: string) {
+    try {
+      const res = await fetch(`/api/conversations/${id}/accept`, { method: "POST" });
+      if (res.ok) {
+        setConversations((prev) =>
+          prev.map((c) => (c.id === id ? { ...c, is_request: false } : c)),
+        );
+      }
+    } catch {}
+  }
+
+  function handleIgnoreRequest(id: string) {
+    if (selectedChatId === id) {
+      setSelectedChatId(null);
+    }
+  }
+
+  async function handleRevokeGuest(inviteId: string) {
+    try {
+      const res = await fetch(`/api/guests/${inviteId}/revoke`, { method: "POST" });
+      if (res.ok) {
+        setConversations((prev) => prev.filter((c) => c.guest_invite_id !== inviteId));
+        if (rawChat?.guest_invite_id === inviteId) {
+          setSelectedChatId(null);
+        }
+      }
+    } catch {}
+  }
 
   useEffect(() => {
     if (!selectedChatId) return;
@@ -70,9 +111,15 @@ export function ShellLayout({
         onSelectView={(v) => setActiveView(v)}
       />
 
-      {activeView === "knowledge" ? (
-        /* "What your agent knows" view */
-        <KnowledgeView onBack={() => setActiveView("chats")} />
+      {activeView === "contacts" ? (
+        /* Contacts view */
+        <ContactsView
+          onBack={() => setActiveView("chats")}
+          onOpenConversation={handleOpenConversation}
+        />
+      ) : activeView === "guardrails" || activeView === "knowledge" ? (
+        /* Guardrails view */
+        <GuardrailsView onBack={() => setActiveView("chats")} />
       ) : (
         <>
           {/* 2) LIST COLUMN: 340px (min 320, max 380), bg colour */}
@@ -84,7 +131,13 @@ export function ShellLayout({
           />
 
           {/* 3) CONVERSATION COLUMN: flex-1 */}
-          <ConversationColumn chat={selectedChat} />
+          <ConversationColumn
+            chat={selectedChat}
+            onBack={() => setSelectedChatId(null)}
+            onAcceptRequest={handleAcceptRequest}
+            onIgnoreRequest={handleIgnoreRequest}
+            onRevokeGuest={handleRevokeGuest}
+          />
         </>
       )}
 

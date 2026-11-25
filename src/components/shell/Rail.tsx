@@ -7,8 +7,8 @@ import { signOut } from "@/app/actions";
 
 interface RailProps {
   ownerEmail: string;
-  activeView?: "chats" | "knowledge";
-  onSelectView?: (view: "chats" | "knowledge") => void;
+  activeView?: "chats" | "contacts" | "guardrails" | "knowledge";
+  onSelectView?: (view: "chats" | "contacts" | "guardrails" | "knowledge") => void;
 }
 
 export function Rail({
@@ -38,7 +38,7 @@ export function Rail({
       aria-label="Navigation rail"
       className="flex h-full w-[60px] min-w-[60px] shrink-0 flex-col justify-between items-center border-r border-q-separator bg-q-panel py-3.5 z-20 select-none"
     >
-      {/* Top: Active Chats icon and Knowledge icon */}
+      {/* Top: Active Chats icon, Contacts icon, and Guardrails icon */}
       <div className="flex flex-col items-center gap-2">
         <button
           type="button"
@@ -69,12 +69,12 @@ export function Rail({
 
         <button
           type="button"
-          id="rail-knowledge-btn"
-          aria-label="What your agent knows"
-          title="What your agent knows"
-          onClick={() => onSelectView?.("knowledge")}
+          id="rail-contacts-btn"
+          aria-label="Contacts"
+          title="Contacts"
+          onClick={() => onSelectView?.("contacts")}
           className={`apple-btn flex h-10 w-10 items-center justify-center rounded-xl transition-colors active:scale-[0.97] ${
-            activeView === "knowledge"
+            activeView === "contacts"
               ? "text-q-accent bg-q-secondary-elevated/60"
               : "text-q-text-2 hover:bg-q-secondary-elevated hover:text-q-text"
           }`}
@@ -90,8 +90,37 @@ export function Rail({
             strokeLinejoin="round"
             aria-hidden="true"
           >
-            <path d="M12 2a8 8 0 0 0-8 8c0 3.37 2.06 6.26 5 7.46V20a2 2 0 0 0 2 2h2a2 2 0 0 0 2-2v-2.54c2.94-1.2 5-4.09 5-7.46a8 8 0 0 0-8-8z" />
-            <path d="M9 22h6" />
+            <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
+            <circle cx="9" cy="7" r="4" />
+            <path d="M23 21v-2a4 4 0 0 0-3-3.87" />
+            <path d="M16 3.13a4 4 0 0 1 0 7.75" />
+          </svg>
+        </button>
+
+        <button
+          type="button"
+          id="rail-guardrails-btn"
+          aria-label="Guardrails"
+          title="Guardrails"
+          onClick={() => onSelectView?.("guardrails")}
+          className={`apple-btn flex h-10 w-10 items-center justify-center rounded-xl transition-colors active:scale-[0.97] ${
+            activeView === "guardrails" || activeView === "knowledge"
+              ? "text-q-accent bg-q-secondary-elevated/60"
+              : "text-q-text-2 hover:bg-q-secondary-elevated hover:text-q-text"
+          }`}
+        >
+          <svg
+            width="21"
+            height="21"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            aria-hidden="true"
+          >
+            <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
           </svg>
         </button>
       </div>

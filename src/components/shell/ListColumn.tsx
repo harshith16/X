@@ -15,6 +15,9 @@ export interface ChatItem {
   lastMessageStatus?: "queued" | "delivered" | "read";
   lastMessageTime?: string;
   unreadCount?: number;
+  is_request?: boolean;
+  is_guest?: boolean;
+  guest_invite_id?: string | null;
 }
 
 interface ListColumnProps {
@@ -39,8 +42,60 @@ export function ListColumn({
 }: ListColumnProps) {
   const [searchQuery, setSearchQuery] = useState("");
   const [activeFilter, setActiveFilter] = useState<"all" | "unread" | "online">("all");
+  const [showRequests, setShowRequests] = useState(false);
   const [isOverflowOpen, setIsOverflowOpen] = useState(false);
   const overflowRef = useRef<HTMLDivElement>(null);
+
+  const [showInviteModal, setShowInviteModal] = useState(false);
+  const [invites, setInvites] = useState<any[]>([]);
+  const [createdInviteLink, setCreatedInviteLink] = useState<string | null>(null);
+  const [inviteError, setInviteError] = useState<string | null>(null);
+  const [isCreatingInvite, setIsCreatingInvite] = useState(false);
+  const [copiedLink, setCopiedLink] = useState(false);
+
+  async function loadInvites() {
+    try {
+      const res = await fetch("/api/guests");
+      const data = await res.json();
+      if (data.items) {
+        setInvites(data.items);
+      }
+    } catch {}
+  }
+
+  async function handleCreateInvite() {
+    setIsCreatingInvite(true);
+    setInviteError(null);
+    setCreatedInviteLink(null);
+    try {
+      const res = await fetch("/api/guests", { method: "POST" });
+      const data = await res.json();
+      if (!res.ok) {
+        setInviteError(data.error?.message || "Failed to create guest invite.");
+      } else {
+        setCreatedInviteLink(data.invite?.link || `${window.location.origin}/g/${data.invite?.token}`);
+        await loadInvites();
+      }
+    } catch {
+      setInviteError("Network error creating guest invite.");
+    } finally {
+      setIsCreatingInvite(false);
+    }
+  }
+
+  async function handleRevokeInvite(id: string) {
+    try {
+      const res = await fetch(`/api/guests/${id}/revoke`, { method: "POST" });
+      if (res.ok) {
+        await loadInvites();
+      }
+    } catch {}
+  }
+
+  const requestCount = useMemo(
+    () => conversations.filter((c) => Boolean(c.is_request)).length,
+    [conversations],
+  );
 
   // Close overflow menu on outside click
   useEffect(() => {
@@ -57,10 +112,17 @@ export function ListColumn({
   const agentBgClass = avatarBgClass(agent.handle);
   const isAgentActive = agent.status === "active";
 
-  // Filter conversations live by name/handle and active chip
+  // Filter conversations live by name/handle, active chip, and request mode
   const filteredConversations = useMemo(() => {
     return conversations.filter((chat) => {
-      // 1. Search filter
+      // 1. Requests filter
+      if (showRequests) {
+        if (!chat.is_request) return false;
+      } else {
+        if (chat.is_request) return false;
+      }
+
+      // 2. Search filter
       if (searchQuery.trim()) {
         const q = searchQuery.toLowerCase().trim();
         const matchesHandle = chat.handle.toLowerCase().includes(q);
@@ -68,16 +130,18 @@ export function ListColumn({
         if (!matchesHandle && !matchesName) return false;
       }
 
-      // 2. Chip filter
-      if (activeFilter === "unread") {
-        return (chat.unreadCount ?? 0) > 0;
-      }
-      if (activeFilter === "online") {
-        return chat.presence === "online";
+      // 3. Chip filter (only for main chats)
+      if (!showRequests) {
+        if (activeFilter === "unread") {
+          return (chat.unreadCount ?? 0) > 0;
+        }
+        if (activeFilter === "online") {
+          return chat.presence === "online";
+        }
       }
       return true;
     });
-  }, [conversations, searchQuery, activeFilter]);
+  }, [conversations, searchQuery, activeFilter, showRequests]);
 
   return (
     <aside
@@ -91,65 +155,198 @@ export function ListColumn({
           Qurelium
         </h1>
 
-        <div ref={overflowRef} className="relative">
+        <div className="flex items-center gap-1.5">
           <button
             type="button"
-            id="list-overflow-btn"
-            aria-label="Menu"
-            title="Menu"
-            onClick={() => setIsOverflowOpen((prev) => !prev)}
-            className="apple-btn flex h-8 w-8 items-center justify-center rounded-full text-q-text-2 hover:bg-q-secondary-elevated hover:text-q-text transition-colors active:scale-[0.97]"
+            id="create-guest-invite-btn"
+            aria-label="Invite guest"
+            title="Invite guest"
+            onClick={() => {
+              setShowInviteModal(true);
+              setCreatedInviteLink(null);
+              setInviteError(null);
+              loadInvites();
+            }}
+            className="apple-btn flex h-7 items-center gap-1.5 rounded-full bg-q-secondary-elevated px-2.5 text-xs font-medium text-q-text hover:bg-q-secondary-elevated/80 transition-colors"
           >
-            <svg
-              width="18"
-              height="18"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              aria-hidden="true"
-            >
-              <circle cx="12" cy="12" r="1.5" />
-              <circle cx="12" cy="5" r="1.5" />
-              <circle cx="12" cy="19" r="1.5" />
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
+              <circle cx="9" cy="7" r="4" />
+              <line x1="19" y1="8" x2="19" y2="14" />
+              <line x1="22" y1="11" x2="16" y2="11" />
             </svg>
+            <span>Invite guest</span>
           </button>
 
-          {/* Overflow dropdown containing Sign out */}
-          {isOverflowOpen && (
-            <div
-              id="list-overflow-menu"
-              className="absolute right-0 top-10 z-50 w-40 rounded-xl border border-q-separator bg-q-elevated p-1 shadow-lg backdrop-blur-md"
+          <div ref={overflowRef} className="relative">
+            <button
+              type="button"
+              id="list-overflow-btn"
+              aria-label="Menu"
+              title="Menu"
+              onClick={() => setIsOverflowOpen((prev) => !prev)}
+              className="apple-btn flex h-8 w-8 items-center justify-center rounded-full text-q-text-2 hover:bg-q-secondary-elevated hover:text-q-text transition-colors active:scale-[0.97]"
             >
-              <form action={signOut}>
-                <button
-                  type="submit"
-                  className="apple-btn flex w-full items-center gap-2 rounded-lg px-3 py-2 text-xs font-medium text-q-danger hover:bg-q-secondary-elevated transition-colors"
-                >
-                  <svg
-                    width="14"
-                    height="14"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    aria-hidden="true"
+              <svg
+                width="18"
+                height="18"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                aria-hidden="true"
+              >
+                <circle cx="12" cy="12" r="1.5" />
+                <circle cx="12" cy="5" r="1.5" />
+                <circle cx="12" cy="19" r="1.5" />
+              </svg>
+            </button>
+
+            {/* Overflow dropdown containing Sign out */}
+            {isOverflowOpen && (
+              <div
+                id="list-overflow-menu"
+                className="absolute right-0 top-10 z-50 w-40 rounded-xl border border-q-separator bg-q-elevated p-1 shadow-lg backdrop-blur-md"
+              >
+                <form action={signOut}>
+                  <button
+                    type="submit"
+                    className="apple-btn flex w-full items-center gap-2 rounded-lg px-3 py-2 text-xs font-medium text-q-danger hover:bg-q-secondary-elevated transition-colors"
                   >
-                    <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
-                    <polyline points="16 17 21 12 16 7" />
-                    <line x1="21" y1="12" x2="9" y2="12" />
-                  </svg>
-                  Sign out
-                </button>
-              </form>
-            </div>
-          )}
+                    <svg
+                      width="14"
+                      height="14"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      aria-hidden="true"
+                    >
+                      <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+                      <polyline points="16 17 21 12 16 7" />
+                      <line x1="21" y1="12" x2="9" y2="12" />
+                    </svg>
+                    Sign out
+                  </button>
+                </form>
+              </div>
+            )}
+          </div>
         </div>
       </div>
+
+      {/* Guest invite modal */}
+      {showInviteModal && (
+        <div
+          id="guest-invite-modal"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-xs"
+        >
+          <div className="w-full max-w-md rounded-2xl border border-q-separator bg-q-elevated p-5 shadow-2xl space-y-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <h3 className="text-base font-semibold text-q-text">Guest Links</h3>
+                <p className="text-xs text-q-text-2 mt-0.5">
+                  Invite someone to chat with your agent. Max 3 active guests free.
+                </p>
+              </div>
+              <button
+                type="button"
+                id="close-guest-modal-btn"
+                onClick={() => setShowInviteModal(false)}
+                className="apple-btn flex h-7 w-7 items-center justify-center rounded-full text-q-text-2 hover:bg-q-secondary-elevated hover:text-q-text"
+              >
+                ✕
+              </button>
+            </div>
+
+            {inviteError && (
+              <div
+                id="guest-limit-error"
+                className="rounded-xl border border-q-danger/30 bg-q-danger/10 p-3 text-xs text-q-danger"
+              >
+                {inviteError}
+              </div>
+            )}
+
+            {createdInviteLink && (
+              <div className="space-y-2 rounded-xl border border-q-separator bg-q-secondary-elevated p-3">
+                <p className="text-xs font-medium text-q-text">One-time invite link (expires in 7 days):</p>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="text"
+                    id="guest-invite-link"
+                    readOnly
+                    value={createdInviteLink}
+                    className="w-full rounded-lg border border-q-separator bg-q-bg px-2.5 py-1.5 text-xs text-q-text select-all"
+                  />
+                  <button
+                    type="button"
+                    id="copy-guest-link-btn"
+                    onClick={() => {
+                      navigator.clipboard.writeText(createdInviteLink);
+                      setCopiedLink(true);
+                      setTimeout(() => setCopiedLink(false), 2000);
+                    }}
+                    className="apple-btn shrink-0 rounded-lg bg-q-accent px-3 py-1.5 text-xs font-medium text-white shadow-xs"
+                  >
+                    {copiedLink ? "Copied" : "Copy"}
+                  </button>
+                </div>
+              </div>
+            )}
+
+            <div className="flex items-center justify-between pt-1">
+              <span className="text-xs text-q-text-3">
+                {invites.filter((i) => i.status === "active" || i.status === "pending").length} of 3 active invites used
+              </span>
+              <button
+                type="button"
+                id="generate-guest-link-btn"
+                disabled={isCreatingInvite}
+                onClick={handleCreateInvite}
+                className="apple-btn rounded-xl bg-q-accent px-4 py-2 text-xs font-semibold text-white shadow-xs hover:bg-q-accent-hover active:scale-[0.98] disabled:opacity-50"
+              >
+                {isCreatingInvite ? "Creating..." : "Create guest link"}
+              </button>
+            </div>
+
+            {invites.length > 0 && (
+              <div className="space-y-2 pt-2 border-t border-q-separator">
+                <p className="text-xs font-medium text-q-text-2">Invites</p>
+                <div className="max-h-40 overflow-y-auto space-y-1.5 pr-1 divide-y divide-q-separator/40">
+                  {invites.map((inv) => (
+                    <div key={inv.id} className="flex items-center justify-between py-1.5 text-xs">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <span className={`inline-block h-2 w-2 rounded-full ${
+                          inv.status === "active" ? "bg-q-online" : inv.status === "pending" ? "bg-q-waiting" : "bg-q-offline"
+                        }`} />
+                        <span className="truncate text-q-text capitalize">{inv.status}</span>
+                        <span className="text-[11px] text-q-text-3">
+                          {new Date(inv.created_at).toLocaleDateString([], { month: "short", day: "numeric" })}
+                        </span>
+                      </div>
+                      {(inv.status === "active" || inv.status === "pending") && (
+                        <button
+                          type="button"
+                          id={`revoke-invite-${inv.id}`}
+                          onClick={() => handleRevokeInvite(inv.id)}
+                          className="apple-btn rounded-md px-2 py-0.5 text-[11px] font-medium text-q-danger hover:bg-q-danger/10"
+                        >
+                          Revoke
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* ── Search field: fully rounded, search-fill background, placeholder "Search" ── */}
       <div className="px-3.5 pt-3 pb-2">
@@ -289,6 +486,46 @@ export function ListColumn({
           </div>
         </div>
       )}
+      {/* ── Requests entry in the list column (with count) showing request conversations ── */}
+      {requestCount > 0 && (
+        <button
+          type="button"
+          id="requests-list-entry"
+          onClick={() => setShowRequests((prev) => !prev)}
+          className={`apple-btn flex w-full items-center justify-between border-b border-q-separator px-4 py-2.5 text-left transition-colors active:scale-[0.99] ${
+            showRequests
+              ? "bg-q-secondary-elevated text-q-accent font-semibold"
+              : "hover:bg-q-secondary-elevated/60 text-q-text"
+          }`}
+        >
+          <div className="flex items-center gap-2">
+            <svg
+              width="16"
+              height="16"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden="true"
+            >
+              <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+            </svg>
+            <span className="text-[13px] font-medium">
+              {showRequests ? "← Back to chats" : "Requests"}
+            </span>
+          </div>
+          {!showRequests && (
+            <span
+              id="requests-count-badge"
+              className="rounded-full bg-q-accent px-2 py-0.5 text-[11px] font-bold text-white shadow-xs"
+            >
+              {requestCount}
+            </span>
+          )}
+        </button>
+      )}
 
       {/* ── Scrollable list area: skeleton rows while loading, chat rows or empty state ── */}
       <div className="flex-1 overflow-y-auto">
@@ -343,9 +580,19 @@ export function ListColumn({
                   {/* Middle: name + preview */}
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center justify-between">
-                      <p className="truncate text-[15px] font-medium text-q-text">
-                        {chat.name ?? `@${chat.handle}`}
-                      </p>
+                      <div className="flex items-center gap-1.5 min-w-0">
+                        <p className="truncate text-[15px] font-medium text-q-text">
+                          {chat.name ?? `@${chat.handle}`}
+                        </p>
+                        {chat.is_guest && (
+                          <span
+                            id={`guest-badge-${chat.id}`}
+                            className="rounded-full bg-q-accent/10 text-q-accent border border-q-accent/20 px-1.5 py-0.5 text-[10px] font-medium tracking-wide shrink-0"
+                          >
+                            Guest
+                          </span>
+                        )}
+                      </div>
                       {chat.lastMessageTime && (
                         <span
                           className={`text-[12px] shrink-0 ${

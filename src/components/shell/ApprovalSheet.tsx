@@ -44,10 +44,6 @@ export function ApprovalSheet({
 
   const activeApproval = approvals.length > 0 ? approvals[0] : null;
 
-  if (!activeApproval) {
-    return null;
-  }
-
   async function handleDecision(decision: "share" | "not_now" | "never") {
     if (!activeApproval || isSubmitting) return;
     setIsSubmitting(true);
@@ -70,8 +66,22 @@ export function ApprovalSheet({
     }
   }
 
+  // Close / dismiss on Escape key
+  useEffect(() => {
+    function handleKeyDown(e: KeyboardEvent) {
+      if (e.key === "Escape" && activeApproval && !isSubmitting) {
+        handleDecision("not_now");
+      }
+    }
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [activeApproval, isSubmitting]);
+
+  if (!activeApproval) {
+    return null;
+  }
+
   // Format question humanly per docs/DESIGN.md §5:
-  // e.g. "Rohan's agent is asking about your Goa trip dates. Share?"
   const questionText = activeApproval.question.endsWith("?")
     ? activeApproval.question
     : `${activeApproval.question}?`;
@@ -79,6 +89,11 @@ export function ApprovalSheet({
   return (
     <div
       id="approval-sheet-overlay"
+      onClick={(e) => {
+        if (e.target === e.currentTarget && !isSubmitting) {
+          handleDecision("not_now");
+        }
+      }}
       className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-q-scrim p-4 transition-opacity backdrop-blur-xs"
     >
       <div

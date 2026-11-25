@@ -14,6 +14,8 @@ import {
   MessageRecord,
 } from "@/types/relay";
 import { RelayStore } from "./store";
+import { screenOutgoingMessage } from "@/server/rules/engine";
+import { areOwnersAcceptedContacts } from "@/server/contacts/service";
 
 export class RelayError extends Error {
   code: string;
@@ -312,10 +314,11 @@ export async function recordHeartbeat(
  */
 export async function sendMessage(
   senderAgent: AgentRecord,
-  toHandle: string,
+  toHandle: string | undefined,
   body: string,
   idempotencyKey: string,
   requestId: string,
+  conversationId?: string,
 ): Promise<{
   ok: boolean;
   message_id: string;
@@ -324,21 +327,82 @@ export async function sendMessage(
   seq: number;
 }> {
   const db = getServiceClient();
-  const cleanToHandle = toHandle.replace(/^@/, "").toLowerCase().trim();
 
-  // 1. Resolve recipient agent
-  const { data: recipientAgent, error: recipientErr } = await db
-    .from("agents")
-    .select("*")
-    .eq("handle", cleanToHandle)
-    .maybeSingle();
+  let conv: ConversationRecord | null = null;
+  let recipientAgent: AgentRecord | null = null;
 
-  if (recipientErr || !recipientAgent) {
-    logger.warn({
-      msg: `Recipient agent @${cleanToHandle} not found`,
-      request_id: requestId,
-    });
-    throw new RelayError("AGENT_NOT_FOUND", `Recipient agent @${cleanToHandle} not found.`, 404);
+  if (conversationId) {
+    conv = await RelayStore.getConversationById(conversationId);
+    if (!conv) {
+      throw new RelayError("NOT_FOUND", "Conversation not found.", 404);
+    }
+
+    if (conv.agent_a_id !== senderAgent.id && conv.agent_b_id !== senderAgent.id) {
+      throw new RelayError("FORBIDDEN", "Agent is not a participant in this conversation.", 403);
+    }
+
+    if (conv.is_guest || conv.kind === "guest") {
+      if (conv.guest_invite_id) {
+        const { isGuestInviteRevoked } = await import("@/server/guests/service");
+        const isRevoked = await isGuestInviteRevoked(conv.guest_invite_id);
+        if (isRevoked) {
+          throw new RelayError("INVITE_REVOKED", "This guest conversation has been closed.", 403);
+        }
+      }
+    } else {
+      const recipientId = conv.agent_a_id === senderAgent.id ? conv.agent_b_id : conv.agent_a_id;
+      if (recipientId) {
+        const { data: recAgent } = await db.from("agents").select("*").eq("id", recipientId).maybeSingle();
+        recipientAgent = recAgent;
+      }
+    }
+  } else if (toHandle) {
+    const cleanToHandle = toHandle.replace(/^@/, "").toLowerCase().trim();
+    const { data: foundAgent, error: recipientErr } = await db
+      .from("agents")
+      .select("*")
+      .eq("handle", cleanToHandle)
+      .maybeSingle();
+
+    if (recipientErr || !foundAgent) {
+      logger.warn({
+        msg: `Recipient agent @${cleanToHandle} not found`,
+        request_id: requestId,
+      });
+      throw new RelayError("AGENT_NOT_FOUND", `Recipient agent @${cleanToHandle} not found.`, 404);
+    }
+    recipientAgent = foundAgent as AgentRecord;
+
+    // Check if receiver owner and sender owner are accepted contacts (or have an existing accepted conversation)
+    let isRequest = false;
+    try {
+      const areContacts = await areOwnersAcceptedContacts(
+        senderAgent.owner_id,
+        recipientAgent.owner_id,
+      );
+      if (!areContacts) {
+        const existingConvs = await RelayStore.getConversationsForAgent(recipientAgent.id);
+        const hasAccepted = existingConvs.some(
+          (c) =>
+            (c.agent_a_id === senderAgent.id || c.agent_b_id === senderAgent.id) &&
+            c.is_request === false,
+        );
+        if (!hasAccepted) {
+          isRequest = true;
+        }
+      }
+    } catch {
+      // Default false
+    }
+
+    conv = await RelayStore.getOrCreateConversation(
+      senderAgent.id,
+      recipientAgent.id,
+      requestId,
+      isRequest,
+    );
+  } else {
+    throw new RelayError("VALIDATION_FAILED", "Either to_handle or conversation_id must be provided.", 400);
   }
 
   // 2. Check idempotency: re-sending the same idempotency_key returns the ORIGINAL message
@@ -358,12 +422,41 @@ export async function sendMessage(
     };
   }
 
-  // 3. Get or create pair conversation
-  const conv = await RelayStore.getOrCreateConversation(
-    senderAgent.id,
-    recipientAgent.id,
+  // 3. Screen outgoing message against sender owner's guardrails (pure deterministic code, NO LLM)
+  const screenResult = await screenOutgoingMessage({
+    ownerId: senderAgent.owner_id,
+    agentId: senderAgent.id,
+    conversationId: conv.id,
+    text: body,
     requestId,
-  );
+  });
+
+  if (screenResult.action === "block") {
+    logger.warn({
+      msg: "Outgoing message blocked by rules",
+      request_id: requestId,
+      sender_handle: senderAgent.handle,
+    });
+    throw new RelayError("blocked_by_rules", "Message blocked by owner guardrails.", 403);
+  }
+
+  // If held for approval, do NOT deliver draft message yet
+  if (screenResult.action === "hold") {
+    logger.info({
+      msg: "Outgoing message held for approval",
+      request_id: requestId,
+      approval_id: screenResult.approvalId,
+      sender_handle: senderAgent.handle,
+    });
+    return {
+      ok: true,
+      message_id: "",
+      status: "held_for_approval",
+      approval_id: screenResult.approvalId,
+      conversation_id: conv.id,
+      seq: 0,
+    } as any;
+  }
 
   // 4. Insert message
   const storedMsg = await RelayStore.insertMessage(
@@ -373,15 +466,23 @@ export async function sendMessage(
     idempotencyKey,
   );
 
-  logger.info({
-    msg: `Message sent from @${senderAgent.handle} to @${recipientAgent.handle} (id: ${storedMsg.id})`,
-    request_id: requestId,
-    message_id: storedMsg.id,
-    conversation_id: conv.id,
-  });
-
-  // Notify any waiting long-pollers for this recipient
-  inboxEvents.emit(`msg:${recipientAgent.id}`, storedMsg);
+  if (recipientAgent) {
+    logger.info({
+      msg: `Message sent from @${senderAgent.handle} to @${recipientAgent.handle} (id: ${storedMsg.id})`,
+      request_id: requestId,
+      message_id: storedMsg.id,
+      conversation_id: conv.id,
+    });
+    // Notify any waiting long-pollers for this recipient
+    inboxEvents.emit(`msg:${recipientAgent.id}`, storedMsg);
+  } else {
+    logger.info({
+      msg: `Message sent from @${senderAgent.handle} to guest conversation (id: ${storedMsg.id})`,
+      request_id: requestId,
+      message_id: storedMsg.id,
+      conversation_id: conv.id,
+    });
+  }
 
   return {
     ok: true,
@@ -453,7 +554,7 @@ export async function getInbox(
     message_id: m.id,
     conversation_id: m.conversation_id,
     seq: m.seq,
-    from_handle: handleMap.get(m.sender_agent_id) ?? "unknown",
+    from_handle: m.sender_agent_id ? (handleMap.get(m.sender_agent_id) ?? "unknown") : "guest",
     body: m.body,
     status: (queuedIds.includes(m.id) ? "delivered" : m.status) as "queued" | "delivered" | "read",
     created_at: m.created_at,
@@ -564,6 +665,47 @@ export async function getOwnerConversations(
   const result = [];
 
   for (const conv of convs) {
+    if (conv.is_guest || conv.kind === "guest") {
+      let guestName = "Guest";
+      if (conv.guest_user_id) {
+        const { data: guestUser } = await db
+          .from("users")
+          .select("email, display_name, handle")
+          .eq("id", conv.guest_user_id)
+          .maybeSingle();
+
+        if (guestUser) {
+          guestName = guestUser.display_name || guestUser.handle || guestUser.email || "Guest";
+        }
+      }
+
+      const msgs = await RelayStore.getMessagesForConversation(conv.id);
+      const lastMsg = msgs.length > 0 ? msgs[msgs.length - 1] : null;
+
+      let lastMessageTime: string | undefined;
+      if (lastMsg) {
+        const date = new Date(lastMsg.created_at);
+        lastMessageTime = date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+      }
+
+      result.push({
+        id: conv.id,
+        handle: "guest",
+        name: guestName,
+        presence: "online" as const,
+        presenceLine: "Guest",
+        lastMessagePreview: lastMsg?.body,
+        lastMessageIsOwn: lastMsg?.sender_agent_id === ownerAgent.id,
+        lastMessageStatus: lastMsg?.status as "queued" | "delivered" | "read" | undefined,
+        lastMessageTime,
+        unreadCount: 0,
+        is_request: false, // Guests never appear in Requests — they're invited, not strangers.
+        is_guest: true,
+        guest_invite_id: conv.guest_invite_id,
+      });
+      continue;
+    }
+
     const otherAgentId = conv.agent_a_id === ownerAgent.id ? conv.agent_b_id : conv.agent_a_id;
     const { data: otherAgent } = await db
       .from("agents")
@@ -604,6 +746,7 @@ export async function getOwnerConversations(
       lastMessageStatus: lastMsg?.status as "queued" | "delivered" | "read" | undefined,
       lastMessageTime,
       unreadCount,
+      is_request: Boolean(conv.is_request),
     });
   }
 
@@ -628,7 +771,7 @@ export async function getOwnerMessages(
     .maybeSingle();
 
   if (!ownerAgent) {
-    throw new RelayError("UNAUTHORIZED", "No agent found.", 401);
+    throw new RelayError("FORBIDDEN", "Guest accounts cannot access owner conversations.", 403);
   }
 
   const conv = await RelayStore.getConversationById(conversationId);

@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { GET as checkAvailability } from "@/app/api/handles/[handle]/availability/route";
 import { POST as claimAgent } from "@/app/api/agents/claim/route";
-import { POST as activateAgent } from "@/app/api/agents/activate/route";
+import { POST as verifyTweet } from "@/app/api/claim/verify-tweet/route";
 import { NextRequest } from "next/server";
 
 vi.mock("next/headers", () => ({
@@ -40,8 +40,13 @@ describe("Claim & Handle API endpoints authentication guards", () => {
     expect(body.error.request_id).toBeDefined();
   });
 
-  it("POST /api/agents/activate returns 401 for unauthenticated request", async () => {
-    const response = await activateAgent();
+  it("POST /api/claim/verify-tweet returns 401 for unauthenticated request", async () => {
+    const req = new NextRequest("http://localhost:3000/api/claim/verify-tweet", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ tweet_url: "https://x.com/jack/status/20" }),
+    });
+    const response = await verifyTweet(req);
 
     expect(response.status).toBe(401);
     const body = await response.json();

@@ -56,3 +56,9 @@ These decisions were made by the founder. They are not open for reinterpretation
 32. **Guardrails are category toggles + specific entries:** Qurelium suggests the sensitive categories (passwords & codes, money & banking, health, home address, live location, family details, work confidential, identity documents); the owner toggles each to open / ask / never, and can add exact never-share or ask-first entries on top. Setup is guided with suggestions — never a blank lifetime of typing.
 33. **Guest links: invite-only, capped** (refines #14's guest half): an owner invites a specific person; maximum **3 active guests per agent free**, more guests are paid. Guests chat as humans with the owner's agent under the same screen; owners see the transcripts and can revoke anytime.
 34. **One agent per person free; multiple agents are paid** (refines #5): v1 enforces the free caps in code (1 agent, 3 guests); billing itself is a later build.
+
+35.Guest signup required (refines #33): no anonymous guests — a guest signs up (magic link / Google, the same auth as owners) before chatting. Required for owners and guests alike. Supersedes the no-account guest design.
+
+36.Claim tweet verification is a real check (supersedes #25): the server verifies the claim post via X's public oEmbed — the post exists and is public, the author handle matches the claiming handle, the html contains the claim token. No paid X API. Self-confirm is dead.
+
+37.Analytics instrumentation from day one (refines the data principle): metadata-only, append-only event capture from the first build — network-graph edges, guardrail outcomes (rule class + outcome, never content), category-toggle states, approval/block rates, request/guest funnel, claim completions, watch-page opt-ins. Capture now, dashboards later. Chat content never enters analytics, forever.

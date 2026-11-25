@@ -116,10 +116,10 @@ export function LoginForm({ showDevLogin }: LoginFormProps) {
             <div className="mb-4 flex items-center justify-between border-b border-q-hairline pb-3">
               <div className="flex items-center gap-2.5">
                 <div className="flex h-8 w-8 items-center justify-center rounded-full bg-q-accent text-xs font-semibold text-white">
-                  M
+                  @
                 </div>
                 <div>
-                  <p className="text-xs font-semibold tracking-[-0.01em] text-q-text">Maya</p>
+                  <p className="text-xs font-semibold tracking-[-0.01em] text-q-text">Agent</p>
                   <div className="flex items-center gap-1.5">
                     <span className="h-2 w-2 rounded-full bg-q-online shrink-0" />
                     <span className="text-[11px] text-q-muted">online</span>
@@ -133,17 +133,17 @@ export function LoginForm({ showDevLogin }: LoginFormProps) {
               {/* Their message 1 */}
               <div className="flex justify-start animate-chat-bubble-1">
                 <div className="max-w-[85%] rounded-2xl rounded-tl-sm bg-q-bubble-their px-3.5 py-2 text-q-text">
-                  <p>Can Maya share your calendar for tomorrow?</p>
-                  <p className="mt-1 text-[10px] text-q-muted text-right">14:22</p>
+                  <p>Checking availability for tomorrow&apos;s meeting.</p>
+                  <p className="mt-1 text-[10px] text-q-muted text-right">10:00</p>
                 </div>
               </div>
 
               {/* Own message 2 */}
               <div className="flex justify-end animate-chat-bubble-2">
                 <div className="max-w-[85%] rounded-2xl rounded-tr-sm bg-q-bubble-own px-3.5 py-2 text-white">
-                  <p>Checking owner rules… 2 PM to 4 PM is free. Want me to hold 2:30 PM?</p>
+                  <p>Screening against owner guardrails… Availability shared within owner-set hours.</p>
                   <div className="mt-1 flex items-center justify-end gap-1 text-[10px] text-white/80">
-                    <span>14:23</span>
+                    <span>10:01</span>
                     <DoubleCheckIcon />
                   </div>
                 </div>
@@ -152,8 +152,8 @@ export function LoginForm({ showDevLogin }: LoginFormProps) {
               {/* Their message 3 */}
               <div className="flex justify-start animate-chat-bubble-3">
                 <div className="max-w-[85%] rounded-2xl rounded-tl-sm bg-q-bubble-their px-3.5 py-2 text-q-text">
-                  <p>Perfect. Booked for 2:30 PM.</p>
-                  <p className="mt-1 text-[10px] text-q-muted text-right">14:24</p>
+                  <p>Received. Connecting our owners.</p>
+                  <p className="mt-1 text-[10px] text-q-muted text-right">10:02</p>
                 </div>
               </div>
             </div>
@@ -243,16 +243,22 @@ export function LoginForm({ showDevLogin }: LoginFormProps) {
                 <div className="h-px flex-1 bg-q-hairline" />
               </div>
 
-              <button
-                id="google-btn"
-                type="button"
-                onClick={handleGoogle}
-                disabled={step === "sending"}
-                className="apple-btn flex w-full items-center justify-center gap-2.5 rounded-xl border border-q-hairline bg-q-panel hover:bg-q-hairline px-4 py-3 text-sm font-medium text-q-text transition-all active:scale-[0.97] disabled:opacity-50"
-              >
-                <GoogleIcon />
-                Continue with Google
-              </button>
+              <div className="space-y-1.5">
+                <button
+                  id="google-btn"
+                  type="button"
+                  disabled
+                  aria-disabled="true"
+                  title="Google sign-in is not configured yet"
+                  className="apple-btn flex w-full items-center justify-center gap-2.5 rounded-xl border border-q-hairline bg-q-panel px-4 py-3 text-sm font-medium text-q-text transition-all opacity-60 cursor-not-allowed"
+                >
+                  <GoogleIcon />
+                  Continue with Google
+                </button>
+                <p className="text-center text-[11px] text-q-muted">
+                  Google sign-in is unavailable (OAuth provider not configured). Use email above.
+                </p>
+              </div>
 
               {/* Dev test login button (rendered only when DEV_TEST_LOGIN=true) */}
               {showDevLogin && (

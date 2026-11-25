@@ -46,6 +46,7 @@ export async function POST(request: NextRequest) {
       parseResult.data.body,
       parseResult.data.idempotency_key,
       requestId,
+      parseResult.data.conversation_id,
     );
 
     return NextResponse.json(
@@ -53,6 +54,7 @@ export async function POST(request: NextRequest) {
         ok: true,
         message_id: result.message_id,
         status: result.status,
+        approval_id: (result as any).approval_id,
         conversation_id: result.conversation_id,
         seq: result.seq,
         request_id: requestId,

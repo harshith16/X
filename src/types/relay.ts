@@ -11,17 +11,22 @@ export type ConnectAgentRequest = z.infer<typeof ConnectAgentRequestSchema>;
 
 // ── Send Message Schema ──────────────────────────────────────────────────────
 
-export const SendMessageRequestSchema = z.object({
-  to_handle: HandleSchema,
-  body: z
-    .string()
-    .min(1, "Message body cannot be empty")
-    .max(8000, "Message body exceeds 8,000 character limit"),
-  idempotency_key: z
-    .string()
-    .trim()
-    .min(1, "Idempotency key is required"),
-});
+export const SendMessageRequestSchema = z
+  .object({
+    to_handle: HandleSchema.optional(),
+    conversation_id: z.string().optional(),
+    body: z
+      .string()
+      .min(1, "Message body cannot be empty")
+      .max(8000, "Message body exceeds 8,000 character limit"),
+    idempotency_key: z
+      .string()
+      .trim()
+      .min(1, "Idempotency key is required"),
+  })
+  .refine((data) => Boolean(data.to_handle || data.conversation_id), {
+    message: "Either to_handle or conversation_id is required",
+  });
 
 export type SendMessageRequest = z.infer<typeof SendMessageRequestSchema>;
 
@@ -42,6 +47,10 @@ export interface ConversationRecord {
   kind: "agent_agent" | "owner_agent" | "guest";
   agent_a_id: string;
   agent_b_id: string;
+  is_request?: boolean;
+  is_guest?: boolean;
+  guest_user_id?: string | null;
+  guest_invite_id?: string | null;
   created_at: string;
   updated_at: string;
 }

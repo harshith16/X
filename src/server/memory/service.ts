@@ -2,7 +2,6 @@ import { getServiceClient } from "@/server/db/clients";
 import { logger } from "@/lib/logger";
 import { FactRecord, ShareRule } from "@/types/brain";
 import { computeContentHash } from "./normalize";
-import { embedText } from "./embedding";
 
 export class MemoryError extends Error {
   code: string;
@@ -17,8 +16,9 @@ export class MemoryError extends Error {
 }
 
 /**
- * Returns owner's currently valid facts, cursor-paginated, max 50.
- * Filter: owner_id = :owner AND invalid_at IS NULL.
+ * Returns owner's currently valid guard entries, cursor-paginated, max 50.
+ * Filter: owner_id = :owner AND invalid_at IS NULL AND share_rule IN ('never', 'ask').
+ * Legacy 'share' entries are ignored.
  * Order: created_at desc, id desc.
  */
 export async function getOwnerFacts(
@@ -35,6 +35,7 @@ export async function getOwnerFacts(
     .select("id, text, share_rule, created_at")
     .eq("owner_id", ownerId)
     .is("invalid_at", null)
+    .in("share_rule", ["never", "ask"])
     .order("created_at", { ascending: false })
     .order("id", { ascending: false })
     .limit(boundedLimit);
@@ -66,18 +67,20 @@ export async function getOwnerFacts(
 }
 
 /**
- * Adds a new fact for the signed-in owner.
+ * Adds a new guard entry for the signed-in owner.
  * Deduplicates by content_hash against currently valid facts.
- * Never-share facts are NEVER embedded.
+ * Embeddings are no longer computed (column stays null).
  */
 export async function addFact(
   ownerId: string,
   text: string,
-  shareRule: ShareRule,
-  requestId: string,
+  shareRule: ShareRule = "never",
+  requestId?: string,
 ): Promise<Pick<FactRecord, "id" | "text" | "share_rule" | "created_at">> {
   const db = getServiceClient();
   const contentHash = computeContentHash(text);
+  // 'share' entries are legacy — normalize to 'ask' or 'never' if passed
+  const effectiveRule: ShareRule = shareRule === "share" ? "ask" : shareRule;
 
   // 1. Check for duplicate live fact
   const { data: existing, error: findErr } = await db
@@ -89,20 +92,24 @@ export async function addFact(
     .maybeSingle();
 
   if (findErr) {
-    logger.error({
-      msg: `Error checking duplicate fact: ${findErr.message}`,
-      request_id: requestId,
-      owner_id: ownerId,
-    });
+    if (requestId) {
+      logger.error({
+        msg: `Error checking duplicate fact: ${findErr.message}`,
+        request_id: requestId,
+        owner_id: ownerId,
+      });
+    }
     throw new MemoryError("DATABASE_ERROR", findErr.message, 500);
   }
 
   if (existing) {
-    logger.info({
-      msg: `Duplicate live fact returned for owner: ${existing.id}`,
-      request_id: requestId,
-      owner_id: ownerId,
-    });
+    if (requestId) {
+      logger.info({
+        msg: `Duplicate live fact returned for owner: ${existing.id}`,
+        request_id: requestId,
+        owner_id: ownerId,
+      });
+    }
     return existing as Pick<FactRecord, "id" | "text" | "share_rule" | "created_at">;
   }
 
@@ -113,23 +120,17 @@ export async function addFact(
     .eq("owner_id", ownerId)
     .maybeSingle();
 
-  // 3. Compute embedding (NEVER embed if share_rule is 'never')
-  let embeddingVector: number[] | null = null;
-  if (shareRule !== "never") {
-    embeddingVector = await embedText(text, requestId);
-  }
-
   const now = new Date().toISOString();
 
-  // 4. Insert fact
+  // 3. Insert guard entry (embedding remains null; never computed)
   const { data: inserted, error: insertErr } = await db
     .from("facts")
     .insert({
       owner_id: ownerId,
       agent_id: agent?.id ?? null,
       text,
-      share_rule: shareRule,
-      embedding: embeddingVector,
+      share_rule: effectiveRule,
+      embedding: null,
       content_hash: contentHash,
       valid_at: now,
       invalid_at: null,
@@ -140,19 +141,23 @@ export async function addFact(
     .single();
 
   if (insertErr || !inserted) {
-    logger.error({
-      msg: `Failed to insert fact: ${insertErr?.message}`,
-      request_id: requestId,
-      owner_id: ownerId,
-    });
+    if (requestId) {
+      logger.error({
+        msg: `Failed to insert fact: ${insertErr?.message}`,
+        request_id: requestId,
+        owner_id: ownerId,
+      });
+    }
     throw new MemoryError("DATABASE_ERROR", insertErr?.message || "Failed to create fact.", 500);
   }
 
-  logger.info({
-    msg: `Added fact ${inserted.id} with rule ${shareRule}`,
-    request_id: requestId,
-    owner_id: ownerId,
-  });
+  if (requestId) {
+    logger.info({
+      msg: `Added fact ${inserted.id} with rule ${shareRule}`,
+      request_id: requestId,
+      owner_id: ownerId,
+    });
+  }
 
   return inserted as Pick<FactRecord, "id" | "text" | "share_rule" | "created_at">;
 }

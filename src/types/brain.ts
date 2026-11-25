@@ -1,17 +1,23 @@
 import { z } from "zod";
 
-// ── Fact Schemas ────────────────────────────────────────────────────────────
+// ── Guard Rule & Entry Schemas ──────────────────────────────────────────────
 
-export const ShareRuleSchema = z.enum(["share", "ask", "never"]);
+export const GuardRuleSchema = z.enum(["never", "ask"]);
+export type GuardRule = z.infer<typeof GuardRuleSchema>;
+
+// ShareRule includes legacy 'share' for backwards compatibility
+export const ShareRuleSchema = z.enum(["never", "ask", "share"]);
 export type ShareRule = z.infer<typeof ShareRuleSchema>;
 
 export const CreateFactRequestSchema = z.object({
   text: z
     .string()
     .trim()
-    .min(1, "Fact text cannot be empty")
-    .max(2000, "Fact text cannot exceed 2000 characters"),
-  share_rule: ShareRuleSchema.default("ask"),
+    .min(1, "Guard entry text cannot be empty")
+    .max(2000, "Guard entry text cannot exceed 2000 characters"),
+  guard: GuardRuleSchema.optional(),
+  share_rule: ShareRuleSchema.optional(),
+  category: z.string().optional(),
 });
 
 export type CreateFactRequest = z.infer<typeof CreateFactRequestSchema>;
@@ -31,9 +37,59 @@ export interface FactRecord {
   updated_at: string;
 }
 
+// ── Sensitive Specifics Categories Catalogue ────────────────────────────────
+
+export const GuardCategoryKeySchema = z.enum([
+  "secrets",
+  "home_address",
+  "phone_number",
+  "personal_email",
+  "live_location",
+  "money_figures",
+  "health_specifics",
+  "family_specifics",
+]);
+
+export type GuardCategoryKey = z.infer<typeof GuardCategoryKeySchema>;
+
+export const GuardCategoryModeSchema = z.enum(["open", "ask", "never"]);
+export type GuardCategoryMode = z.infer<typeof GuardCategoryModeSchema>;
+
+export interface GuardCategoryDefinition {
+  id: GuardCategoryKey;
+  label: string;
+  description: string;
+  defaultMode: GuardCategoryMode;
+  allowedModes?: GuardCategoryMode[];
+  registeredEntries?: string[];
+}
+
+export const UpdateCategoryModeRequestSchema = z.object({
+  category: GuardCategoryKeySchema,
+  mode: GuardCategoryModeSchema,
+});
+
+export type UpdateCategoryModeRequest = z.infer<typeof UpdateCategoryModeRequestSchema>;
+
+export interface GuardCategoryState {
+  category: GuardCategoryKey;
+  label: string;
+  description: string;
+  mode: GuardCategoryMode;
+}
+
+export interface ScreeningActivityItem {
+  id: string;
+  timestamp: string;
+  outcome: "blocked" | "held" | "shared" | "never";
+  category?: string | null;
+  text: string;
+  approval_id?: string | null;
+}
+
 // ── Approval Schemas ────────────────────────────────────────────────────────
 
-export const ApprovalStatusSchema = z.enum(["pending", "shared", "denied", "never"]);
+export const ApprovalStatusSchema = z.enum(["pending", "shared", "denied", "never", "blocked"]);
 export type ApprovalStatus = z.infer<typeof ApprovalStatusSchema>;
 
 export const ResolveApprovalDecisionSchema = z.enum(["share", "not_now", "never"]);
@@ -62,27 +118,6 @@ export interface BlockRecord {
   id: string;
   owner_id: string;
   agent_id?: string | null;
-  fact_id: string;
+  fact_id?: string | null;
   created_at: string;
-}
-
-// ── Think Endpoint Schemas ──────────────────────────────────────────────────
-
-export const ThinkRequestSchema = z.object({
-  conversation_id: z.string().min(1, "conversation_id is required"),
-  question: z
-    .string()
-    .trim()
-    .min(1, "question cannot be empty")
-    .max(2000, "question cannot exceed 2000 characters"),
-});
-
-export type ThinkRequest = z.infer<typeof ThinkRequestSchema>;
-
-export interface ThinkResponse {
-  ok: boolean;
-  outcome: "reply" | "deflect" | "no_answer";
-  reply?: string;
-  approval_id?: string;
-  request_id: string;
 }

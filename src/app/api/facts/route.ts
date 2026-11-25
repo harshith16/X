@@ -127,10 +127,11 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    const rule = parseResult.data.guard || parseResult.data.share_rule || "never";
     const fact = await addFact(
       user.id,
       parseResult.data.text,
-      parseResult.data.share_rule,
+      rule,
       requestId,
     );
 

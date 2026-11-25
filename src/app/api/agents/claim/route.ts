@@ -59,7 +59,12 @@ export async function POST(request: NextRequest) {
     }
 
     // 3. Claim agent
-    const { agent, isExisting } = await claimAgent(user.id, parseResult.data.handle, requestId);
+    const { agent, isExisting } = await claimAgent(
+      user.id,
+      parseResult.data.handle,
+      requestId,
+      parseResult.data.x_handle,
+    );
 
     return NextResponse.json(
       {
